@@ -123,6 +123,7 @@ export interface SubmissionVersion {
   deployUrl: string;
   githubUrl: string;
   solutionPdfUrl: string;
+  solutionPdfPath: string;
   demoVideoUrl: string;
   savedAt: string;
 }
@@ -136,6 +137,7 @@ export interface Submission {
   deployUrl: string;
   githubUrl: string;
   solutionPdfUrl: string;
+  solutionPdfPath: string;
   demoVideoUrl: string;
   status: SubmissionStatus;
   updatedAt: string;
@@ -177,6 +179,7 @@ export interface SubmissionFormInput {
   deployUrl: string;
   githubUrl: string;
   solutionPdfUrl: string;
+  solutionPdfPath: string;
   demoVideoUrl: string;
 }
 

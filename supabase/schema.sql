@@ -83,6 +83,7 @@ create table if not exists public.submissions (
   deploy_url text not null,
   github_url text not null,
   solution_pdf_url text not null,
+  solution_pdf_path text not null default '',
   demo_video_url text not null default '',
   status text not null check (status in ('draft', 'submitted')),
   updated_at timestamptz not null default now(),
@@ -99,10 +100,17 @@ create table if not exists public.submission_versions (
   deploy_url text not null,
   github_url text not null,
   solution_pdf_url text not null,
+  solution_pdf_path text not null default '',
   demo_video_url text not null default '',
   saved_at timestamptz not null default now(),
   unique (submission_id, version_number)
 );
+
+alter table public.submissions
+  add column if not exists solution_pdf_path text not null default '';
+
+alter table public.submission_versions
+  add column if not exists solution_pdf_path text not null default '';
 
 create table if not exists public.leaderboard_entries (
   id uuid primary key default gen_random_uuid(),
@@ -128,6 +136,20 @@ create index if not exists idx_submissions_hackathon_id on public.submissions (h
 create index if not exists idx_submissions_team_id on public.submissions (team_id);
 create index if not exists idx_submission_versions_submission_id on public.submission_versions (submission_id);
 create index if not exists idx_leaderboard_entries_hackathon_id on public.leaderboard_entries (hackathon_id);
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'hackathon-submissions',
+  'hackathon-submissions',
+  false,
+  10485760,
+  array['application/pdf']
+)
+on conflict (id) do update
+set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
 
 drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at
@@ -240,18 +262,20 @@ to authenticated
 using (owner_id = (select auth.uid()))
 with check (owner_id = (select auth.uid()));
 
+drop policy if exists "team_members_select_public_or_member" on public.team_members;
 drop policy if exists "team_members_select_owner_or_member" on public.team_members;
-create policy "team_members_select_owner_or_member"
+create policy "team_members_select_public_or_member"
 on public.team_members
 for select
-to authenticated
+to anon, authenticated
 using (
   exists (
     select 1
     from public.teams t
     where t.id = team_members.team_id
       and (
-        t.owner_id = (select auth.uid())
+        t.is_recruiting = true
+        or t.owner_id = (select auth.uid())
         or exists (
           select 1
           from public.team_members inner_tm
@@ -374,3 +398,78 @@ on public.leaderboard_entries
 for select
 to anon, authenticated
 using (true);
+
+drop policy if exists "submission_assets_select_team_member" on storage.objects;
+create policy "submission_assets_select_team_member"
+on storage.objects
+for select
+to authenticated
+using (
+  bucket_id = 'hackathon-submissions'
+  and exists (
+    select 1
+    from public.team_members tm
+    where tm.profile_id = (select auth.uid())
+      and tm.team_id::text = (storage.foldername(name))[1]
+  )
+);
+
+drop policy if exists "submission_assets_insert_team_owner" on storage.objects;
+create policy "submission_assets_insert_team_owner"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'hackathon-submissions'
+  and lower(storage.extension(name)) = 'pdf'
+  and exists (
+    select 1
+    from public.team_members tm
+    where tm.profile_id = (select auth.uid())
+      and tm.is_owner = true
+      and tm.team_id::text = (storage.foldername(name))[1]
+  )
+);
+
+drop policy if exists "submission_assets_update_team_owner" on storage.objects;
+create policy "submission_assets_update_team_owner"
+on storage.objects
+for update
+to authenticated
+using (
+  bucket_id = 'hackathon-submissions'
+  and exists (
+    select 1
+    from public.team_members tm
+    where tm.profile_id = (select auth.uid())
+      and tm.is_owner = true
+      and tm.team_id::text = (storage.foldername(name))[1]
+  )
+)
+with check (
+  bucket_id = 'hackathon-submissions'
+  and lower(storage.extension(name)) = 'pdf'
+  and exists (
+    select 1
+    from public.team_members tm
+    where tm.profile_id = (select auth.uid())
+      and tm.is_owner = true
+      and tm.team_id::text = (storage.foldername(name))[1]
+  )
+);
+
+drop policy if exists "submission_assets_delete_team_owner" on storage.objects;
+create policy "submission_assets_delete_team_owner"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'hackathon-submissions'
+  and exists (
+    select 1
+    from public.team_members tm
+    where tm.profile_id = (select auth.uid())
+      and tm.is_owner = true
+      and tm.team_id::text = (storage.foldername(name))[1]
+  )
+);

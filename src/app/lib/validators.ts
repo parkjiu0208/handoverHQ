@@ -33,6 +33,10 @@ export const submissionFormSchema = z.object({
   proposalUrl: z.string().trim().refine(isValidExternalUrl, '기획서 링크는 유효한 URL이어야 합니다.'),
   deployUrl: z.string().trim().refine(isValidExternalUrl, '배포 URL은 유효한 URL이어야 합니다.'),
   githubUrl: z.string().trim().refine(isGitHubRepositoryUrl, 'GitHub 저장소 URL은 github.com 저장소 주소여야 합니다.'),
-  solutionPdfUrl: z.string().trim().refine(isValidExternalUrl, '솔루션 PDF URL은 유효한 URL이어야 합니다.'),
+  solutionPdfUrl: z.string().trim(),
+  solutionPdfPath: z.string().trim(),
   demoVideoUrl: z.string().trim().refine((value) => value.length === 0 || isValidExternalUrl(value), '시연 링크는 비워두거나 유효한 URL이어야 합니다.'),
+}).refine((value) => value.solutionPdfPath.length > 0 || isValidExternalUrl(value.solutionPdfUrl), {
+  message: '솔루션 PDF는 업로드하거나 유효한 공개 URL을 입력해주세요.',
+  path: ['solutionPdfUrl'],
 });

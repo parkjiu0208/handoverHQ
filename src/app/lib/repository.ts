@@ -1,6 +1,8 @@
 import type { User } from '@supabase/supabase-js';
 import { startTransition } from 'react';
+import { getUserDisplayName, normalizeUserRole } from './auth';
 import { appEnv } from './env';
+import { createSignedSubmissionAssetUrls } from './storage';
 import { getSupabaseBrowserClient } from './supabase';
 import { SEED_HACKATHONS, SEED_LEADERBOARD, SEED_SUBMISSIONS, SEED_TEAMS } from './mock-data';
 import { STORAGE_KEYS } from './constants';
@@ -20,8 +22,20 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
+function createUuid() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
 function createId(prefix: string) {
-  return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 10_000)}`}`;
+  return appEnv.hasSupabase ? createUuid() : `${prefix}-${createUuid()}`;
 }
 
 function readStoredCollection<T>(key: string, fallback: T): T {
@@ -47,18 +61,20 @@ function writeStoredCollection<T>(key: string, value: T) {
 }
 
 function mapSupabaseUser(user: User): AppUser {
-  const displayName =
-    user.user_metadata?.display_name ||
-    user.user_metadata?.full_name ||
-    user.email?.split('@')[0] ||
-    '참가자';
-
   return {
     id: user.id,
     email: user.email ?? '',
-    displayName,
-    primaryRole: null,
+    displayName: getUserDisplayName(user),
+    primaryRole: normalizeUserRole(user.user_metadata?.primary_role),
   };
+}
+
+function ensureNoSupabaseError(error: { message: string } | null, context: string) {
+  if (!error) {
+    return;
+  }
+
+  throw new Error(`${context}: ${error.message}`);
 }
 
 function normalizeRanks(entries: LeaderboardEntry[]) {
@@ -77,6 +93,10 @@ function getFallbackData(): BootstrapData {
     submissions: readStoredCollection(STORAGE_KEYS.submissions, SEED_SUBMISSIONS),
     leaderboardEntries: readStoredCollection(STORAGE_KEYS.leaderboards, SEED_LEADERBOARD),
   };
+}
+
+export function loadFallbackBootstrapData() {
+  return getFallbackData();
 }
 
 function mapHackathonRecord(record: Record<string, any>): Hackathon {
@@ -140,7 +160,8 @@ function mapSubmissionRecord(record: Record<string, any>, versions: Record<strin
     proposalUrl: record.proposal_url,
     deployUrl: record.deploy_url,
     githubUrl: record.github_url,
-    solutionPdfUrl: record.solution_pdf_url,
+    solutionPdfUrl: record.resolved_solution_pdf_url ?? record.solution_pdf_url ?? '',
+    solutionPdfPath: record.solution_pdf_path ?? '',
     demoVideoUrl: record.demo_video_url ?? '',
     status: record.status,
     updatedAt: record.updated_at,
@@ -153,7 +174,8 @@ function mapSubmissionRecord(record: Record<string, any>, versions: Record<strin
         proposalUrl: version.proposal_url,
         deployUrl: version.deploy_url,
         githubUrl: version.github_url,
-        solutionPdfUrl: version.solution_pdf_url,
+        solutionPdfUrl: version.resolved_solution_pdf_url ?? version.solution_pdf_url ?? '',
+        solutionPdfPath: version.solution_pdf_path ?? '',
         demoVideoUrl: version.demo_video_url ?? '',
         savedAt: version.saved_at,
       })),
@@ -175,46 +197,64 @@ function mapLeaderboardRecord(record: Record<string, any>): LeaderboardEntry {
   };
 }
 
-export async function loadBootstrapData(): Promise<BootstrapData> {
+export async function loadBootstrapData(currentUserId?: string | null): Promise<BootstrapData> {
   if (!appEnv.hasSupabase) {
     return getFallbackData();
   }
 
-  try {
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) {
-      return getFallbackData();
-    }
-
-    const [
-      { data: hackathons, error: hackathonsError },
-      { data: teams, error: teamsError },
-      { data: members, error: membersError },
-      { data: submissions, error: submissionsError },
-      { data: versions, error: versionsError },
-      { data: leaderboardEntries, error: leaderboardError },
-    ] = await Promise.all([
-      supabase.from('hackathons').select('*').eq('published', true).order('submission_deadline', { ascending: true }),
-      supabase.from('teams').select('*').order('updated_at', { ascending: false }),
-      supabase.from('team_members').select('*'),
-      supabase.from('submissions').select('*').order('updated_at', { ascending: false }),
-      supabase.from('submission_versions').select('*').order('saved_at', { ascending: false }),
-      supabase.from('leaderboard_entries').select('*').order('score_total', { ascending: false }),
-    ]);
-
-    if (hackathonsError || teamsError || membersError || submissionsError || versionsError || leaderboardError) {
-      throw new Error('Supabase bootstrap failed');
-    }
-
-    return {
-      hackathons: (hackathons ?? []).map((record) => mapHackathonRecord(record)),
-      teams: (teams ?? []).map((record) => mapTeamRecord(record, members ?? [])),
-      submissions: (submissions ?? []).map((record) => mapSubmissionRecord(record, versions ?? [])),
-      leaderboardEntries: (leaderboardEntries ?? []).map((record) => mapLeaderboardRecord(record)),
-    };
-  } catch {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
     return getFallbackData();
   }
+
+  const shouldLoadPrivateData = Boolean(currentUserId);
+  const [
+    { data: hackathons, error: hackathonsError },
+    { data: teams, error: teamsError },
+    { data: members, error: membersError },
+    { data: submissions, error: submissionsError },
+    { data: versions, error: versionsError },
+    { data: leaderboardEntries, error: leaderboardError },
+  ] = await Promise.all([
+    supabase.from('hackathons').select('*').eq('published', true).order('submission_deadline', { ascending: true }),
+    supabase.from('teams').select('*').order('updated_at', { ascending: false }),
+    supabase.from('team_members').select('*'),
+    shouldLoadPrivateData
+      ? supabase.from('submissions').select('*').order('updated_at', { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+    shouldLoadPrivateData
+      ? supabase.from('submission_versions').select('*').order('saved_at', { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+    supabase.from('leaderboard_entries').select('*').order('score_total', { ascending: false }),
+  ]);
+
+  ensureNoSupabaseError(hackathonsError, '해커톤 목록을 불러오지 못했습니다');
+  ensureNoSupabaseError(teamsError, '팀 목록을 불러오지 못했습니다');
+  ensureNoSupabaseError(membersError, '팀 멤버 정보를 불러오지 못했습니다');
+  ensureNoSupabaseError(submissionsError, '제출 정보를 불러오지 못했습니다');
+  ensureNoSupabaseError(versionsError, '제출 버전 이력을 불러오지 못했습니다');
+  ensureNoSupabaseError(leaderboardError, '리더보드를 불러오지 못했습니다');
+
+  const allSubmissionAssetPaths = [...(submissions ?? []), ...(versions ?? [])]
+    .map((record) => record.solution_pdf_path as string | undefined)
+    .filter((path): path is string => Boolean(path));
+
+  const signedUrlMap = await createSignedSubmissionAssetUrls(allSubmissionAssetPaths);
+  const hydratedSubmissions = (submissions ?? []).map((record) => ({
+    ...record,
+    resolved_solution_pdf_url: record.solution_pdf_path ? signedUrlMap.get(record.solution_pdf_path) ?? '' : record.solution_pdf_url ?? '',
+  }));
+  const hydratedVersions = (versions ?? []).map((record) => ({
+    ...record,
+    resolved_solution_pdf_url: record.solution_pdf_path ? signedUrlMap.get(record.solution_pdf_path) ?? '' : record.solution_pdf_url ?? '',
+  }));
+
+  return {
+    hackathons: (hackathons ?? []).map((record) => mapHackathonRecord(record)),
+    teams: (teams ?? []).map((record) => mapTeamRecord(record, members ?? [])),
+    submissions: hydratedSubmissions.map((record) => mapSubmissionRecord(record, hydratedVersions)),
+    leaderboardEntries: (leaderboardEntries ?? []).map((record) => mapLeaderboardRecord(record)),
+  };
 }
 
 export async function upsertProfile(user: AppUser) {
@@ -227,13 +267,15 @@ export async function upsertProfile(user: AppUser) {
     return user;
   }
 
-  await supabase.from('profiles').upsert({
+  const { error } = await supabase.from('profiles').upsert({
     id: user.id,
     email: user.email,
     display_name: user.displayName,
     primary_role: user.primaryRole,
     is_admin: Boolean(user.isAdmin),
   });
+
+  ensureNoSupabaseError(error, '프로필을 저장하지 못했습니다');
 
   return user;
 }
@@ -281,7 +323,7 @@ export async function saveTeam(input: TeamFormInput, currentUser: AppUser) {
     return teamPayload;
   }
 
-  await supabase.from('teams').upsert({
+  const { error: teamError } = await supabase.from('teams').upsert({
     id: teamPayload.id,
     hackathon_id: teamPayload.hackathonId,
     owner_id: teamPayload.ownerId,
@@ -295,14 +337,16 @@ export async function saveTeam(input: TeamFormInput, currentUser: AppUser) {
     contact_url: teamPayload.contactUrl,
     updated_at: teamPayload.updatedAt,
   });
+  ensureNoSupabaseError(teamError, '팀 정보를 저장하지 못했습니다');
 
-  await supabase.from('team_members').upsert({
+  const { error: memberError } = await supabase.from('team_members').upsert({
     team_id: teamPayload.id,
     profile_id: currentUser.id,
     display_name: currentUser.displayName,
     role_label: currentUser.primaryRole ?? '팀장',
     is_owner: true,
   });
+  ensureNoSupabaseError(memberError, '팀장 정보를 저장하지 못했습니다');
 
   return teamPayload;
 }
@@ -315,6 +359,7 @@ function buildVersion(input: SubmissionFormInput, currentVersions: SubmissionVer
     deployUrl: input.deployUrl,
     githubUrl: input.githubUrl,
     solutionPdfUrl: input.solutionPdfUrl,
+    solutionPdfPath: input.solutionPdfPath,
     demoVideoUrl: input.demoVideoUrl,
     savedAt: new Date().toISOString(),
   };
@@ -365,6 +410,7 @@ export async function saveSubmission(
   currentSubmission: Submission | null,
   finalize: boolean
 ) {
+  const persistedSolutionPdfUrl = input.solutionPdfPath ? '' : input.solutionPdfUrl;
   const nextVersion = buildVersion(input, currentSubmission?.versions ?? []);
   const nextSubmission: Submission = {
     id: currentSubmission?.id ?? createId('submission'),
@@ -375,6 +421,7 @@ export async function saveSubmission(
     deployUrl: input.deployUrl,
     githubUrl: input.githubUrl,
     solutionPdfUrl: input.solutionPdfUrl,
+    solutionPdfPath: input.solutionPdfPath,
     demoVideoUrl: input.demoVideoUrl,
     status: finalize ? 'submitted' : 'draft',
     updatedAt: nextVersion.savedAt,
@@ -393,7 +440,7 @@ export async function saveSubmission(
     return nextSubmission;
   }
 
-  await supabase.from('submissions').upsert({
+  const { error: submissionError } = await supabase.from('submissions').upsert({
     id: nextSubmission.id,
     hackathon_id: nextSubmission.hackathonId,
     team_id: nextSubmission.teamId,
@@ -401,24 +448,28 @@ export async function saveSubmission(
     proposal_url: nextSubmission.proposalUrl,
     deploy_url: nextSubmission.deployUrl,
     github_url: nextSubmission.githubUrl,
-    solution_pdf_url: nextSubmission.solutionPdfUrl,
+    solution_pdf_url: persistedSolutionPdfUrl,
+    solution_pdf_path: nextSubmission.solutionPdfPath,
     demo_video_url: nextSubmission.demoVideoUrl,
     status: nextSubmission.status,
     updated_at: nextSubmission.updatedAt,
     final_submitted_at: nextSubmission.finalSubmittedAt,
   });
+  ensureNoSupabaseError(submissionError, '제출 정보를 저장하지 못했습니다');
 
-  await supabase.from('submission_versions').insert({
+  const { error: versionError } = await supabase.from('submission_versions').insert({
     submission_id: nextSubmission.id,
     version_number: nextVersion.versionNumber,
     proposal_summary: nextVersion.proposalSummary,
     proposal_url: nextVersion.proposalUrl,
     deploy_url: nextVersion.deployUrl,
     github_url: nextVersion.githubUrl,
-    solution_pdf_url: nextVersion.solutionPdfUrl,
+    solution_pdf_url: persistedSolutionPdfUrl,
+    solution_pdf_path: nextVersion.solutionPdfPath,
     demo_video_url: nextVersion.demoVideoUrl,
     saved_at: nextVersion.savedAt,
   });
+  ensureNoSupabaseError(versionError, '제출 버전 이력을 저장하지 못했습니다');
 
   return nextSubmission;
 }

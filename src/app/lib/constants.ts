@@ -2,10 +2,15 @@ import type { UserRole } from '../types/domain';
 
 export const STORAGE_KEYS = {
   profile: 'handoverhq.profile',
+  pendingAuthProfile: 'handoverhq.pending-auth-profile',
   teams: 'handoverhq.teams',
   submissions: 'handoverhq.submissions',
   leaderboards: 'handoverhq.leaderboards',
+  submissionDraftPrefix: 'handoverhq.submit-draft.',
 } as const;
+
+export const SUBMISSION_ASSET_BUCKET = 'hackathon-submissions';
+export const SUBMISSION_ASSET_MAX_BYTES = 20 * 1024 * 1024;
 
 export const ROLE_OPTIONS: Array<{ value: UserRole; label: string }> = [
   { value: 'frontend', label: '프론트엔드' },

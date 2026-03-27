@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -15,12 +15,13 @@ import {
   Users,
   Warning,
 } from '@phosphor-icons/react';
+import { toast } from 'sonner';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { useAppContext } from '../hooks/useAppContext';
-import { ROLE_LABEL_MAP } from '../lib/constants';
+import { ROLE_LABEL_MAP, STORAGE_KEYS } from '../lib/constants';
 import { formatDateTime, formatKoreanDate, getDdayLabel } from '../lib/date';
 import { getHackathonStatusLabel, getSubmissionStatusLabel } from '../lib/presentation';
 import { cn } from '../lib/utils';
@@ -46,7 +47,7 @@ function readLocalDraft(slug: string): Partial<SubmissionFormInput> {
   }
 
   try {
-    const raw = window.localStorage.getItem(`handoverhq.submit-draft.${slug}`);
+    const raw = window.localStorage.getItem(`${STORAGE_KEYS.submissionDraftPrefix}${slug}`);
     return raw ? (JSON.parse(raw) as Partial<SubmissionFormInput>) : {};
   } catch {
     return {};
@@ -60,11 +61,25 @@ function getFitLabel(score: number | null) {
   return '낮음';
 }
 
+function isDetailTab(value: string): value is DetailTab {
+  return tabs.some((tab) => tab.id === value);
+}
+
+function getInitialTab() {
+  if (typeof window === 'undefined') {
+    return 'overview' as DetailTab;
+  }
+
+  const hashValue = window.location.hash.replace('#', '');
+  return isDetailTab(hashValue) ? hashValue : 'overview';
+}
+
 export function HackathonDetail() {
   const { slug = '' } = useParams();
   const {
     currentUser,
     dataLoading,
+    isSupabaseReady,
     hackathons,
     teams,
     leaderboardEntries,
@@ -74,11 +89,16 @@ export function HackathonDetail() {
     getSubmissionForHackathon,
     saveSubmissionDraft,
     finalizeSubmission,
+    uploadSubmissionPdf,
     computeTeamFit,
     getNextAction,
   } = useAppContext();
-  const [activeTab, setActiveTab] = useState<DetailTab>('overview');
+  const [activeTab, setActiveTab] = useState<DetailTab>(() => getInitialTab());
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pdfUploadState, setPdfUploadState] = useState<'idle' | 'uploading'>('idle');
+  const [pdfUploadError, setPdfUploadError] = useState('');
+  const [lastUploadedFileName, setLastUploadedFileName] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const hackathon = getHackathonBySlug(slug);
   const myTeam = hackathon ? getMyTeamForHackathon(hackathon.slug) : null;
@@ -115,6 +135,7 @@ export function HackathonDetail() {
       deployUrl: savedSubmission?.deployUrl ?? localDraft.deployUrl ?? '',
       githubUrl: savedSubmission?.githubUrl ?? localDraft.githubUrl ?? '',
       solutionPdfUrl: savedSubmission?.solutionPdfUrl ?? localDraft.solutionPdfUrl ?? '',
+      solutionPdfPath: savedSubmission?.solutionPdfPath ?? localDraft.solutionPdfPath ?? '',
       demoVideoUrl: savedSubmission?.demoVideoUrl ?? localDraft.demoVideoUrl ?? '',
     }),
     [hackathon?.id, localDraft, myTeam?.id, savedSubmission]
@@ -124,6 +145,7 @@ export function HackathonDetail() {
     register,
     handleSubmit,
     reset,
+    setValue,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<SubmissionFormInput>({
@@ -137,15 +159,46 @@ export function HackathonDetail() {
     { label: '기획서 URL', completed: Boolean(watchedValues.proposalUrl) },
     { label: '배포 URL', completed: Boolean(watchedValues.deployUrl) },
     { label: 'GitHub URL', completed: Boolean(watchedValues.githubUrl) },
-    { label: '솔루션 PDF URL', completed: Boolean(watchedValues.solutionPdfUrl) },
+    { label: '솔루션 PDF', completed: Boolean(watchedValues.solutionPdfPath || watchedValues.solutionPdfUrl) },
   ];
 
   const isFinalized = savedSubmission?.status === 'submitted';
   const isLocked = isFinalized || hackathon?.status === 'ended';
+  const isTeamOwner = Boolean(currentUser && myTeam && currentUser.id === myTeam.ownerId);
+  const canManageSubmission = Boolean(isTeamOwner && !isLocked);
+  const currentPdfFileName =
+    lastUploadedFileName ||
+    watchedValues.solutionPdfPath.split('/').pop() ||
+    (watchedValues.solutionPdfUrl ? '등록된 PDF 링크' : '');
 
   useEffect(() => {
     reset(defaultValues);
   }, [defaultValues, reset]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const nextUrl = `${window.location.pathname}${window.location.search}#${activeTab}`;
+    window.history.replaceState(null, '', nextUrl);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleHashChange = () => {
+      const nextTab = window.location.hash.replace('#', '');
+      if (isDetailTab(nextTab)) {
+        setActiveTab(nextTab);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !slug) {
@@ -153,7 +206,7 @@ export function HackathonDetail() {
     }
 
     window.localStorage.setItem(
-      `handoverhq.submit-draft.${slug}`,
+      `${STORAGE_KEYS.submissionDraftPrefix}${slug}`,
       JSON.stringify({
         ...watchedValues,
         hackathonId: hackathon?.id ?? '',
@@ -205,6 +258,45 @@ export function HackathonDetail() {
     });
     setConfirmOpen(false);
   });
+
+  async function handlePdfUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !hackathon || !myTeam) {
+      return;
+    }
+
+    setPdfUploadError('');
+    setPdfUploadState('uploading');
+
+    try {
+      const uploaded = await uploadSubmissionPdf(file, {
+        hackathonId: hackathon.id,
+        teamId: myTeam.id,
+      });
+
+      setValue('solutionPdfPath', uploaded.path, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+      setValue('solutionPdfUrl', uploaded.url, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+      setLastUploadedFileName(file.name);
+      toast.success('솔루션 PDF를 업로드했습니다.');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
+        return;
+      }
+
+      const nextMessage =
+        error instanceof Error && error.message === 'TEAM_OWNER_REQUIRED'
+          ? '솔루션 PDF 업로드는 팀장만 진행할 수 있습니다.'
+          : error instanceof Error
+            ? error.message
+            : '솔루션 PDF를 업로드하지 못했습니다.';
+
+      setPdfUploadError(nextMessage);
+      toast.error(nextMessage);
+    } finally {
+      setPdfUploadState('idle');
+      event.target.value = '';
+    }
+  }
 
   return (
     <div className="min-h-screen w-full bg-[#EEF3F8] pb-24 text-[#0F1E32]">
@@ -608,7 +700,8 @@ export function HackathonDetail() {
                         <h3 className="mb-2 text-sm font-bold text-[#0F1E32]">Submit Guard</h3>
                         <ul className="space-y-1.5 text-sm text-[#5F6E82]">
                           <li>- 입력값은 브라우저 초안으로 자동 저장됩니다.</li>
-                          <li>- GitHub, 배포, PDF 링크는 모두 공개 접근 가능해야 합니다.</li>
+                          <li>- GitHub와 배포 링크는 공개 접근 가능해야 합니다.</li>
+                          <li>- PDF는 Supabase Storage 업로드를 우선 사용하고, 필요 시 공개 URL로 대체할 수 있습니다.</li>
                           <li>- 최종 제출 후에는 운영자 재오픈 전까지 수정이 잠깁니다.</li>
                         </ul>
                       </div>
@@ -638,11 +731,21 @@ export function HackathonDetail() {
                     <form className="space-y-6" onSubmit={handleSaveDraft}>
                       <input type="hidden" value={hackathon.id} {...register('hackathonId')} />
                       <input type="hidden" value={myTeam.id} {...register('teamId')} />
+                      <input type="hidden" {...register('solutionPdfPath')} />
+
+                      {!isTeamOwner && (
+                        <div className="rounded-2xl border border-[#D6DEE8] bg-[#F6F9FC] p-5">
+                          <div className="mb-1 text-sm font-bold text-[#0F1E32]">읽기 전용 제출 상태</div>
+                          <p className="text-sm text-[#5F6E82]">
+                            현재 이 팀의 제출 저장과 최종 제출 권한은 팀장에게만 열려 있습니다. 팀원은 제출 현황과 버전 이력만 확인할 수 있습니다.
+                          </p>
+                        </div>
+                      )}
 
                       <div>
                         <label className="mb-2 block text-sm font-bold text-[#0F1E32]">프로젝트 요약</label>
                         <textarea
-                          disabled={isLocked}
+                          disabled={!canManageSubmission}
                           className="min-h-[160px] w-full resize-y rounded-2xl border border-[#D6DEE8] p-4 text-sm outline-none transition-colors focus:border-[#0F1E32] focus:ring-4 focus:ring-[#DCEEFF] disabled:bg-[#F6F9FC] disabled:text-[#5F6E82]"
                           placeholder="프로젝트의 문제 정의, 핵심 기능, 차별점을 요약해주세요."
                           {...register('proposalSummary')}
@@ -657,7 +760,7 @@ export function HackathonDetail() {
                           <label className="mb-2 block text-sm font-bold text-[#0F1E32]">기획서 URL</label>
                           <input
                             type="url"
-                            disabled={isLocked}
+                            disabled={!canManageSubmission}
                             placeholder="https://"
                             className="w-full rounded-2xl border border-[#D6DEE8] p-4 text-sm outline-none transition-colors focus:border-[#0F1E32] focus:ring-4 focus:ring-[#DCEEFF] disabled:bg-[#F6F9FC] disabled:text-[#5F6E82]"
                             {...register('proposalUrl')}
@@ -668,7 +771,7 @@ export function HackathonDetail() {
                           <label className="mb-2 block text-sm font-bold text-[#0F1E32]">배포 URL</label>
                           <input
                             type="url"
-                            disabled={isLocked}
+                            disabled={!canManageSubmission}
                             placeholder="https://"
                             className="w-full rounded-2xl border border-[#D6DEE8] p-4 text-sm outline-none transition-colors focus:border-[#0F1E32] focus:ring-4 focus:ring-[#DCEEFF] disabled:bg-[#F6F9FC] disabled:text-[#5F6E82]"
                             {...register('deployUrl')}
@@ -679,7 +782,7 @@ export function HackathonDetail() {
                           <label className="mb-2 block text-sm font-bold text-[#0F1E32]">GitHub 저장소 URL</label>
                           <input
                             type="url"
-                            disabled={isLocked}
+                            disabled={!canManageSubmission}
                             placeholder="https://github.com/"
                             className="w-full rounded-2xl border border-[#D6DEE8] p-4 text-sm outline-none transition-colors focus:border-[#0F1E32] focus:ring-4 focus:ring-[#DCEEFF] disabled:bg-[#F6F9FC] disabled:text-[#5F6E82]"
                             {...register('githubUrl')}
@@ -687,12 +790,65 @@ export function HackathonDetail() {
                           {errors.githubUrl && <p className="mt-2 text-xs font-medium text-[#D74A32]">{errors.githubUrl.message}</p>}
                         </div>
                         <div>
-                          <label className="mb-2 block text-sm font-bold text-[#0F1E32]">솔루션 PDF URL</label>
+                          <div className="mb-2 flex items-center justify-between gap-3">
+                            <label className="block text-sm font-bold text-[#0F1E32]">솔루션 PDF</label>
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              accept="application/pdf"
+                              className="hidden"
+                              onChange={handlePdfUpload}
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={!canManageSubmission || pdfUploadState === 'uploading' || !isSupabaseReady}
+                              onClick={() => fileInputRef.current?.click()}
+                            >
+                              {pdfUploadState === 'uploading' ? '업로드 중...' : 'PDF 업로드'}
+                            </Button>
+                          </div>
+                          <div className="rounded-2xl border border-dashed border-[#D6DEE8] bg-[#F6F9FC] p-4">
+                            <p className="text-sm text-[#5F6E82]">
+                              {isSupabaseReady
+                                ? 'Supabase Storage로 업로드하면 만료형 미리보기 링크와 저장 경로를 함께 관리합니다.'
+                                : '현재는 데모 모드라 업로드 대신 공개 PDF URL 입력만 사용할 수 있습니다.'}
+                            </p>
+                            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[#5F6E82]">
+                              <span className="rounded-full bg-white px-3 py-1 font-medium text-[#0F1E32] shadow-sm">
+                                {currentPdfFileName || '아직 업로드된 파일이 없습니다.'}
+                              </span>
+                              {watchedValues.solutionPdfUrl && (
+                                <a
+                                  href={watchedValues.solutionPdfUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 font-bold text-[#0064FF]"
+                                >
+                                  업로드 파일 열기
+                                  <ArrowSquareOut size={14} />
+                                </a>
+                              )}
+                            </div>
+                            {watchedValues.solutionPdfPath && (
+                              <p className="mt-2 text-xs font-medium text-[#0F1E32]">
+                                저장 경로: {watchedValues.solutionPdfPath}
+                              </p>
+                            )}
+                            {!currentUser && (
+                              <p className="mt-2 text-xs font-medium text-[#5F6E82]">로그인 후 업로드를 사용할 수 있습니다.</p>
+                            )}
+                            {currentUser && !isTeamOwner && (
+                              <p className="mt-2 text-xs font-medium text-[#5F6E82]">PDF 업로드와 최종 제출은 팀장만 진행할 수 있습니다.</p>
+                            )}
+                            {pdfUploadError && <p className="mt-2 text-xs font-medium text-[#D74A32]">{pdfUploadError}</p>}
+                          </div>
                           <input
                             type="url"
-                            disabled={isLocked}
-                            placeholder="https://"
-                            className="w-full rounded-2xl border border-[#D6DEE8] p-4 text-sm outline-none transition-colors focus:border-[#0F1E32] focus:ring-4 focus:ring-[#DCEEFF] disabled:bg-[#F6F9FC] disabled:text-[#5F6E82]"
+                            disabled={!canManageSubmission}
+                            placeholder="업로드가 어렵다면 공개 PDF URL을 입력하세요."
+                            className="mt-3 w-full rounded-2xl border border-[#D6DEE8] p-4 text-sm outline-none transition-colors focus:border-[#0F1E32] focus:ring-4 focus:ring-[#DCEEFF] disabled:bg-[#F6F9FC] disabled:text-[#5F6E82]"
                             {...register('solutionPdfUrl')}
                           />
                           {errors.solutionPdfUrl && (
@@ -705,7 +861,7 @@ export function HackathonDetail() {
                         <label className="mb-2 block text-sm font-bold text-[#0F1E32]">시연 영상 URL</label>
                         <input
                           type="url"
-                          disabled={isLocked}
+                          disabled={!canManageSubmission}
                           placeholder="선택 입력"
                           className="w-full rounded-2xl border border-[#D6DEE8] p-4 text-sm outline-none transition-colors focus:border-[#0F1E32] focus:ring-4 focus:ring-[#DCEEFF] disabled:bg-[#F6F9FC] disabled:text-[#5F6E82]"
                           {...register('demoVideoUrl')}
@@ -723,10 +879,10 @@ export function HackathonDetail() {
                       )}
 
                       <div className="flex flex-wrap gap-3">
-                        <Button type="submit" variant="outline" disabled={isSubmitting || isLocked}>
+                        <Button type="submit" variant="outline" disabled={isSubmitting || !canManageSubmission}>
                           임시 저장
                         </Button>
-                        <Button type="button" disabled={isSubmitting || isLocked} onClick={() => setConfirmOpen(true)}>
+                        <Button type="button" disabled={isSubmitting || !canManageSubmission} onClick={() => setConfirmOpen(true)}>
                           최종 제출
                         </Button>
                       </div>

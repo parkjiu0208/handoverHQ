@@ -18,6 +18,12 @@ export interface AuthRequestInput {
   primaryRole: UserRole | null;
 }
 
+export interface OAuthRequestInput {
+  email?: string;
+  displayName?: string;
+  primaryRole?: UserRole | null;
+}
+
 export interface AppContextValue {
   currentUser: AppUser | null;
   authLoading: boolean;
@@ -33,12 +39,13 @@ export interface AppContextValue {
   openAuthDialog: () => void;
   closeAuthDialog: () => void;
   requestAuth: (input: AuthRequestInput) => Promise<void>;
-  signInWithGitHub: () => Promise<void>;
+  signInWithGitHub: (input?: OAuthRequestInput) => Promise<void>;
   signOut: () => Promise<void>;
   refreshData: () => Promise<void>;
   saveTeam: (input: TeamFormInput) => Promise<void>;
   saveSubmissionDraft: (input: SubmissionFormInput) => Promise<void>;
   finalizeSubmission: (input: SubmissionFormInput) => Promise<void>;
+  uploadSubmissionPdf: (file: File, payload: { hackathonId: string; teamId: string }) => Promise<{ path: string; url: string }>;
   setPreferredRole: (role: UserRole | null) => void;
   getHackathonBySlug: (slug: string) => Hackathon | null;
   getMyTeamForHackathon: (slug: string) => Team | null;

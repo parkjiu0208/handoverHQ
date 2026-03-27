@@ -99,7 +99,7 @@ export function AuthDialog() {
               type="button"
               variant="outline"
               className="w-full"
-              onClick={signInWithGitHub}
+              onClick={() => signInWithGitHub({ email, displayName, primaryRole })}
             >
               GitHub로 로그인
             </Button>

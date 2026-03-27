@@ -5,18 +5,28 @@ import {
   useState,
 } from 'react';
 import { toast } from 'sonner';
-import { AppContext, type AuthRequestInput } from '../hooks/useAppContext';
+import { AppContext, type AuthRequestInput, type OAuthRequestInput } from '../hooks/useAppContext';
+import {
+  clearPendingAuthProfile,
+  getCurrentAuthReturnUrl,
+  normalizeUserRole,
+  readPendingAuthProfile,
+  writePendingAuthProfile,
+} from '../lib/auth';
 import { appEnv } from '../lib/env';
 import {
   loadBootstrapData,
+  loadFallbackBootstrapData,
   mapSupabaseUser,
   saveSubmission,
   saveTeam as persistTeam,
   upsertProfile,
 } from '../lib/repository';
+import { uploadSubmissionPdf as persistSubmissionPdf } from '../lib/storage';
 import { getSupabaseBrowserClient } from '../lib/supabase';
 import { authRequestSchema, submissionFormSchema, teamFormSchema } from '../lib/validators';
 import { useAppStore } from '../stores/useAppStore';
+import type { User } from '@supabase/supabase-js';
 import type {
   AppUser,
   BootstrapData,
@@ -86,14 +96,79 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [data, setData] = useState<BootstrapData>(emptyData);
   const rankings = buildRankings(data.leaderboardEntries);
 
-  async function refreshData() {
+  async function refreshData(userId = currentUser?.id ?? null) {
     setDataLoading(true);
-    const nextData = await loadBootstrapData();
+    let nextData = emptyData;
+    let fallbackMessage = '';
+
+    try {
+      nextData = await loadBootstrapData(userId);
+    } catch (error) {
+      console.error(error);
+      nextData = loadFallbackBootstrapData();
+      fallbackMessage = 'Supabase 데이터를 불러오지 못해 데모 데이터로 표시합니다.';
+    }
 
     startTransition(() => {
       setData(nextData);
       setDataLoading(false);
     });
+
+    if (fallbackMessage) {
+      toast.error(fallbackMessage);
+    }
+  }
+
+  async function syncAuthenticatedUser(user: User) {
+    const pendingAuthProfile = readPendingAuthProfile();
+    const baseUser = mapSupabaseUser(user);
+    const syncedUser: AppUser = {
+      ...baseUser,
+      displayName: pendingAuthProfile?.displayName || baseUser.displayName,
+      primaryRole: pendingAuthProfile?.primaryRole ?? baseUser.primaryRole ?? preferredRole,
+    };
+
+    const supabase = getSupabaseBrowserClient();
+    if (supabase) {
+      const metadataNeedsUpdate =
+        user.user_metadata?.display_name !== syncedUser.displayName ||
+        user.user_metadata?.full_name !== syncedUser.displayName ||
+        user.user_metadata?.primary_role !== syncedUser.primaryRole;
+
+      if (metadataNeedsUpdate) {
+        const { data: updatedUserData, error } = await supabase.auth.updateUser({
+          data: {
+            display_name: syncedUser.displayName,
+            full_name: syncedUser.displayName,
+            primary_role: syncedUser.primaryRole,
+          },
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (updatedUserData.user) {
+          syncedUser.displayName = updatedUserData.user.user_metadata?.display_name || syncedUser.displayName;
+          syncedUser.primaryRole =
+            normalizeUserRole(updatedUserData.user.user_metadata?.primary_role) ?? syncedUser.primaryRole;
+        }
+      }
+    }
+
+    await upsertProfile(syncedUser);
+
+    if (
+      pendingAuthProfile?.returnTo &&
+      pendingAuthProfile.returnTo !== getCurrentAuthReturnUrl()
+    ) {
+      clearPendingAuthProfile();
+      window.location.replace(pendingAuthProfile.returnTo);
+      return syncedUser;
+    }
+
+    clearPendingAuthProfile();
+    return syncedUser;
   }
 
   useEffect(() => {
@@ -119,15 +194,31 @@ export function AppProvider({ children }: PropsWithChildren) {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!mounted) return;
 
-      const nextUser = sessionData.session?.user ? mapSupabaseUser(sessionData.session.user) : null;
+      let nextUser: AppUser | null = null;
+      try {
+        nextUser = sessionData.session?.user ? await syncAuthenticatedUser(sessionData.session.user) : null;
+      } catch (error) {
+        console.error(error);
+        nextUser = sessionData.session?.user ? mapSupabaseUser(sessionData.session.user) : null;
+        toast.error('로그인 정보를 동기화하지 못했습니다. 잠시 후 다시 시도해주세요.');
+      }
+
       setCurrentUser(nextUser);
       setAuthLoading(false);
-      await refreshData();
+      await refreshData(nextUser?.id ?? null);
 
       const { data: authSubscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
-        const sessionUser = session?.user ? mapSupabaseUser(session.user) : null;
+        let sessionUser: AppUser | null = null;
+        try {
+          sessionUser = session?.user ? await syncAuthenticatedUser(session.user) : null;
+        } catch (error) {
+          console.error(error);
+          sessionUser = session?.user ? mapSupabaseUser(session.user) : null;
+          toast.error('세션 정보를 동기화하지 못했습니다. 잠시 후 다시 시도해주세요.');
+        }
+
         setCurrentUser(sessionUser);
-        await refreshData();
+        await refreshData(sessionUser?.id ?? null);
       });
 
       unsubscribe = () => {
@@ -179,14 +270,28 @@ export function AppProvider({ children }: PropsWithChildren) {
       return;
     }
 
+    writePendingAuthProfile({
+      email: parsed.data.email,
+      displayName: parsed.data.displayName,
+      primaryRole: parsed.data.primaryRole,
+      provider: 'email',
+      returnTo: getCurrentAuthReturnUrl(),
+    });
+
     const { error } = await supabase.auth.signInWithOtp({
       email: parsed.data.email,
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: getCurrentAuthReturnUrl(),
+        data: {
+          display_name: parsed.data.displayName,
+          full_name: parsed.data.displayName,
+          primary_role: parsed.data.primaryRole,
+        },
       },
     });
 
     if (error) {
+      clearPendingAuthProfile();
       toast.error(error.message);
       return;
     }
@@ -195,7 +300,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     setAuthDialogOpen(false);
   }
 
-  async function signInWithGitHub() {
+  async function signInWithGitHub(input?: OAuthRequestInput) {
     if (!appEnv.hasSupabase) {
       toast.message('현재는 데모 모드입니다. 이메일 기반 데모 로그인을 사용해주세요.');
       return;
@@ -207,14 +312,25 @@ export function AppProvider({ children }: PropsWithChildren) {
       return;
     }
 
+    const primaryRole = input?.primaryRole ?? preferredRole ?? null;
+    persistPreferredRole(primaryRole);
+    writePendingAuthProfile({
+      email: input?.email?.trim() ?? '',
+      displayName: input?.displayName?.trim() ?? '',
+      primaryRole,
+      provider: 'github',
+      returnTo: getCurrentAuthReturnUrl(),
+    });
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: getCurrentAuthReturnUrl(),
       },
     });
 
     if (error) {
+      clearPendingAuthProfile();
       toast.error(error.message);
     }
   }
@@ -223,6 +339,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (!appEnv.hasSupabase) {
       persistDemoUser(null);
       setCurrentUser(null);
+      clearPendingAuthProfile();
       toast.success('로그아웃했습니다.');
       return;
     }
@@ -234,6 +351,7 @@ export function AppProvider({ children }: PropsWithChildren) {
 
     await supabase.auth.signOut();
     setCurrentUser(null);
+    clearPendingAuthProfile();
     toast.success('로그아웃했습니다.');
   }
 
@@ -271,7 +389,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
         return;
       }
-      toast.error('팀 정보를 저장하지 못했습니다.');
+      toast.error(error instanceof Error ? error.message : '팀 정보를 저장하지 못했습니다.');
     }
   }
 
@@ -283,7 +401,13 @@ export function AppProvider({ children }: PropsWithChildren) {
         return;
       }
 
-      await ensureAuthenticatedUser();
+      const nextUser = await ensureAuthenticatedUser();
+      const team = data.teams.find((candidate) => candidate.id === parsed.data.teamId);
+      if (!team || team.ownerId !== nextUser.id) {
+        toast.error('제출 저장과 최종 제출은 팀장만 진행할 수 있습니다.');
+        return;
+      }
+
       const currentSubmission: Submission | null =
         data.submissions.find(
           (submission) =>
@@ -298,8 +422,24 @@ export function AppProvider({ children }: PropsWithChildren) {
       if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
         return;
       }
-      toast.error(finalize ? '최종 제출에 실패했습니다.' : '초안 저장에 실패했습니다.');
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : finalize
+            ? '최종 제출에 실패했습니다.'
+            : '초안 저장에 실패했습니다.'
+      );
     }
+  }
+
+  async function uploadSubmissionPdf(file: File, payload: { hackathonId: string; teamId: string }) {
+    const nextUser = await ensureAuthenticatedUser();
+    const team = data.teams.find((candidate) => candidate.id === payload.teamId);
+    if (!team || team.ownerId !== nextUser.id) {
+      throw new Error('TEAM_OWNER_REQUIRED');
+    }
+
+    return persistSubmissionPdf(file, payload);
   }
 
   function getHackathonBySlug(slug: string): Hackathon | null {
@@ -380,7 +520,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         title: '제출 준비를 마무리하세요',
         description: `${activeHackathon.title} 제출 탭에서 배포 URL, GitHub, PDF까지 연결하면 심사 준비가 끝납니다.`,
         ctaLabel: '제출 관리',
-        href: `/hackathons/${activeHackathon.slug}`,
+        href: `/hackathons/${activeHackathon.slug}#submit`,
       };
     }
 
@@ -388,7 +528,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       title: '리더보드 상태를 점검하세요',
       description: '최종 제출이 완료됐습니다. 순위, 점수, 산출물 링크를 한 번 더 확인해두세요.',
       ctaLabel: '리더보드 보기',
-      href: `/hackathons/${activeHackathon.slug}`,
+      href: `/hackathons/${activeHackathon.slug}#leaderboard`,
     };
   }
 
@@ -415,6 +555,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         saveTeam,
         saveSubmissionDraft: (input) => commitSubmission(input, false),
         finalizeSubmission: (input) => commitSubmission(input, true),
+        uploadSubmissionPdf,
         setPreferredRole: (role: UserRole | null) => persistPreferredRole(role),
         getHackathonBySlug,
         getMyTeamForHackathon,
