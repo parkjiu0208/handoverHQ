@@ -1,11 +1,15 @@
+import { lazy } from 'react';
 import { createBrowserRouter } from 'react-router';
 import { Layout } from './components/Layout';
-import { Home } from './pages/Home';
-import { Hackathons } from './pages/Hackathons';
-import { HackathonDetail } from './pages/HackathonDetail';
-import { Camp } from './pages/Camp';
-import { Rankings } from './pages/Rankings';
-import { NotFound } from './pages/NotFound';
+
+const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
+const Hackathons = lazy(() => import('./pages/Hackathons').then((module) => ({ default: module.Hackathons })));
+const HackathonDetail = lazy(() =>
+  import('./pages/HackathonDetail').then((module) => ({ default: module.HackathonDetail }))
+);
+const Camp = lazy(() => import('./pages/Camp').then((module) => ({ default: module.Camp })));
+const Rankings = lazy(() => import('./pages/Rankings').then((module) => ({ default: module.Rankings })));
+const NotFound = lazy(() => import('./pages/NotFound').then((module) => ({ default: module.NotFound })));
 
 export const router = createBrowserRouter([
   {
