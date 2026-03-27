@@ -276,12 +276,7 @@ using (
       and (
         t.is_recruiting = true
         or t.owner_id = (select auth.uid())
-        or exists (
-          select 1
-          from public.team_members inner_tm
-          where inner_tm.team_id = team_members.team_id
-            and inner_tm.profile_id = (select auth.uid())
-        )
+        or team_members.profile_id = (select auth.uid())
       )
   )
 );
