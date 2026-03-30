@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowSquareOut, MagnifyingGlass, PencilSimple, Plus, Users, X } from '@phosphor-icons/react';
+import { ChatCircleText, Flag, MagnifyingGlass, PencilSimple, Plus, UserCircle, Users, X } from '@phosphor-icons/react';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
@@ -7,8 +7,17 @@ import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { useAppContext } from '../hooks/useAppContext';
 import { ROLE_OPTIONS } from '../lib/constants';
 import { formatDateTime } from '../lib/date';
-import { getMyTeams, getTeamFitLevel } from '../lib/presentation';
-import { openExternalUrl } from '../lib/url';
+import {
+  getMyTeams,
+  getSubmissionForTeam,
+  getTeamActivityFeed,
+  getTeamCheckpointItems,
+  getTeamFitLevel,
+  getTeamLeader,
+  getTeamProgressSnapshot,
+  getTeamWorkspaceSummary,
+} from '../lib/presentation';
+import { cn } from '../lib/utils';
 import type { Team, TeamFormInput, UserRole } from '../types/domain';
 
 const defaultFormState: TeamFormInput = {
@@ -30,6 +39,8 @@ export function Camp() {
     dataLoading,
     hackathons,
     teams,
+    leaderboardEntries,
+    submissions,
     saveTeam,
     openAuthDialog,
   } = useAppContext();
@@ -60,7 +71,7 @@ export function Camp() {
       isRecruiting: editingTeam.isRecruiting,
       desiredRoles: editingTeam.desiredRoles,
       techTags: editingTeam.techTags,
-      contactUrl: editingTeam.contactUrl,
+      contactUrl: '',
     });
     setTechTagsInput(editingTeam.techTags.join(', '));
   }, [editingTeam]);
@@ -219,7 +230,13 @@ export function Camp() {
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
               {filteredTeams.map((team) => {
                 const fit = getTeamFitLevel(preferredRole, team);
-                const linkedHackathon = hackathons.find((hackathon) => hackathon.id === team.hackathonId);
+                const linkedHackathon = hackathons.find((hackathon) => hackathon.id === team.hackathonId) ?? null;
+                const teamLeader = getTeamLeader(team);
+                const teamSubmission = getSubmissionForTeam(submissions, team.id);
+                const hasPublicSubmission = leaderboardEntries.some((entry) => entry.teamId === team.id);
+                const progress = getTeamProgressSnapshot(team, teamSubmission, hasPublicSubmission);
+                const activityFeed = getTeamActivityFeed(team, teamSubmission, linkedHackathon).slice(0, 2);
+                const checkpoints = getTeamCheckpointItems(team, teamSubmission).slice(0, 2);
 
                 return (
                   <div key={team.id} className="group flex flex-col rounded-2xl bg-white p-6 shadow-md transition-all hover:shadow-xl">
@@ -282,12 +299,81 @@ export function Camp() {
                         </div>
                       </div>
 
+                      <div className="space-y-4 rounded-2xl bg-[#F6F9FC] p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-[#0064FF] shadow-sm">
+                              <UserCircle size={20} weight="fill" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold uppercase tracking-wider text-[#5F6E82]">팀장</div>
+                              <div className="truncate text-sm font-bold text-[#0F1E32]">
+                                {teamLeader?.displayName ?? '팀장 정보 없음'}
+                              </div>
+                              <div className="truncate text-xs text-[#5F6E82]">
+                                {teamLeader?.roleLabel ?? '역할 정보 없음'}
+                              </div>
+                            </div>
+                          </div>
+                          <span
+                            className={cn(
+                              'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold',
+                              progress.tone === 'submitted'
+                                ? 'bg-[#E8FFF3] text-[#0D8F57]'
+                                : progress.tone === 'active'
+                                  ? 'bg-[#EBF5FF] text-[#0064FF]'
+                                  : progress.tone === 'recruiting'
+                                    ? 'bg-white text-[#0F1E32]'
+                                    : 'bg-white text-[#5F6E82]'
+                            )}
+                          >
+                            {progress.label}
+                          </span>
+                        </div>
+
+                        <div>
+                          <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5F6E82]">
+                            <ChatCircleText size={14} />
+                            팀 공간
+                          </div>
+                          <p className="text-sm leading-relaxed text-[#5F6E82]">
+                            {getTeamWorkspaceSummary(team, linkedHackathon)}
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="text-xs font-bold uppercase tracking-wider text-[#5F6E82]">최근 공유</div>
+                          {activityFeed.map((item) => (
+                            <div key={item.id} className="rounded-xl bg-white px-3 py-3 shadow-sm">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold text-[#0F1E32]">{item.title}</div>
+                                  <div className="mt-1 text-xs leading-5 text-[#5F6E82]">{item.description}</div>
+                                </div>
+                                <div className="shrink-0 text-[11px] font-medium text-[#5F6E82]">
+                                  {formatDateTime(item.timestamp)}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5F6E82]">
+                            <Flag size={14} />
+                            이번 체크포인트
+                          </div>
+                          {checkpoints.map((item) => (
+                            <div key={`${team.id}-${item}`} className="rounded-xl bg-white px-3 py-2.5 text-xs leading-5 text-[#0F1E32] shadow-sm">
+                              {item}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
                       <div className="flex items-center justify-between border-t border-[#F6F9FC] pt-4">
                         <div className="text-xs font-medium text-[#5F6E82]">{formatDateTime(team.updatedAt)} 업데이트</div>
-                        <Button variant="outline" size="sm" className="rounded-2xl" onClick={() => openExternalUrl(team.contactUrl)}>
-                          <ArrowSquareOut size={14} />
-                          연락하기
-                        </Button>
+                        <div className="text-xs font-semibold text-[#5F6E82]">{progress.description}</div>
                       </div>
                     </div>
                   </div>
@@ -345,10 +431,11 @@ export function Camp() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-bold text-[#0F1E32]">모집 내용</label>
+                <label className="mb-2 block text-sm font-bold text-[#0F1E32]">팀 소개 및 진행상황</label>
                 <textarea
                   value={formState.description}
                   onChange={(event) => setFormState((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="현재 만들고 있는 것, 필요한 역할, 협업 방식, 이번 주에 어디까지 진행 중인지 함께 적어주세요."
                   className="min-h-[140px] w-full rounded-2xl border border-[#D6DEE8] px-4 py-3 text-sm outline-none"
                 />
               </div>
@@ -421,15 +508,12 @@ export function Camp() {
                 />
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-bold text-[#0F1E32]">연락 링크</label>
-                <input
-                  type="url"
-                  value={formState.contactUrl}
-                  onChange={(event) => setFormState((current) => ({ ...current, contactUrl: event.target.value }))}
-                  placeholder="https://"
-                  className="w-full rounded-2xl border border-[#D6DEE8] px-4 py-3 text-sm outline-none"
-                />
+              <div className="rounded-2xl bg-[#F6F9FC] px-4 py-4">
+                <div className="mb-2 text-sm font-bold text-[#0F1E32]">팀 공간 노출 방식</div>
+                <p className="text-sm leading-6 text-[#5F6E82]">
+                  외부 연락 링크 대신 팀장 정보, 최근 진행상황, 다음 체크포인트가 팀 카드에 표시됩니다.
+                  팀 소개에 현재 단계와 협업 방식을 함께 적어두면 훨씬 자연스럽게 보여집니다.
+                </p>
               </div>
 
               <label className="flex items-center gap-2 rounded-2xl bg-[#F6F9FC] px-4 py-3">

@@ -6,12 +6,15 @@ import {
   ArrowSquareOut,
   Calendar,
   CaretRight,
+  ChatCircleText,
   CheckCircle,
   Clock,
   FileText,
+  Flag,
   Info,
   ShieldCheck,
   Trophy,
+  UserCircle,
   Users,
   Warning,
 } from '@phosphor-icons/react';
@@ -23,7 +26,16 @@ import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { useAppContext } from '../hooks/useAppContext';
 import { ROLE_LABEL_MAP, STORAGE_KEYS } from '../lib/constants';
 import { formatDateTime, formatKoreanDate, getDdayLabel } from '../lib/date';
-import { getHackathonStatusLabel, getSubmissionStatusLabel } from '../lib/presentation';
+import {
+  getHackathonStatusLabel,
+  getSubmissionForTeam,
+  getSubmissionStatusLabel,
+  getTeamActivityFeed,
+  getTeamCheckpointItems,
+  getTeamLeader,
+  getTeamProgressSnapshot,
+  getTeamWorkspaceSummary,
+} from '../lib/presentation';
 import { cn } from '../lib/utils';
 import { submissionFormSchema } from '../lib/validators';
 import type { SubmissionFormInput } from '../types/domain';
@@ -82,6 +94,7 @@ export function HackathonDetail() {
     isSupabaseReady,
     hackathons,
     teams,
+    submissions,
     leaderboardEntries,
     openAuthDialog,
     getHackathonBySlug,
@@ -579,6 +592,15 @@ export function HackathonDetail() {
                 <div className="space-y-4">
                   {teamList.map((team) => {
                     const fitScore = computeTeamFit(team.desiredRoles);
+                    const teamLeader = getTeamLeader(team);
+                    const teamSubmission = getSubmissionForTeam(submissions, team.id);
+                    const hasPublicSubmission = leaderboardEntries.some(
+                      (entry) => entry.teamId === team.id && entry.hackathonId === hackathon.id
+                    );
+                    const progress = getTeamProgressSnapshot(team, teamSubmission, hasPublicSubmission);
+                    const activityFeed = getTeamActivityFeed(team, teamSubmission, hackathon).slice(0, 2);
+                    const checkpoints = getTeamCheckpointItems(team, teamSubmission).slice(0, 2);
+
                     return (
                       <div key={team.id} className="rounded-2xl border border-[#EEF3F8] bg-[#F6F9FC] p-5">
                         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -642,16 +664,75 @@ export function HackathonDetail() {
                           </div>
                         </div>
 
-                        <div className="mt-5 flex justify-end">
-                          <a
-                            href={team.contactUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 rounded-2xl border border-[#D6DEE8] bg-white px-4 py-2 text-sm font-bold text-[#0F1E32] shadow-sm transition-colors hover:bg-[#F6F9FC]"
-                          >
-                            연락 링크
-                            <ArrowSquareOut size={16} />
-                          </a>
+                        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                          <div className="rounded-2xl bg-white p-4 shadow-sm">
+                            <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5F6E82]">
+                              <UserCircle size={14} />
+                              팀장
+                            </div>
+                            <div className="text-sm font-bold text-[#0F1E32]">{teamLeader?.displayName ?? '팀장 정보 없음'}</div>
+                            <div className="mt-1 text-xs text-[#5F6E82]">{teamLeader?.roleLabel ?? '역할 정보 없음'}</div>
+                          </div>
+
+                          <div className="rounded-2xl bg-white p-4 shadow-sm">
+                            <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5F6E82]">
+                              <ChatCircleText size={14} />
+                              팀 공간
+                            </div>
+                            <p className="text-sm leading-6 text-[#5F6E82]">{getTeamWorkspaceSummary(team, hackathon)}</p>
+                          </div>
+
+                          <div className="rounded-2xl bg-white p-4 shadow-sm">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <div className="text-xs font-bold uppercase tracking-wider text-[#5F6E82]">진행 현황</div>
+                              <span
+                                className={cn(
+                                  'rounded-full px-2.5 py-1 text-[11px] font-bold',
+                                  progress.tone === 'submitted'
+                                    ? 'bg-[#E8FFF3] text-[#0D8F57]'
+                                    : progress.tone === 'active'
+                                      ? 'bg-[#EBF5FF] text-[#0064FF]'
+                                      : progress.tone === 'recruiting'
+                                        ? 'bg-[#F6F9FC] text-[#0F1E32]'
+                                        : 'bg-[#F6F9FC] text-[#5F6E82]'
+                                )}
+                              >
+                                {progress.label}
+                              </span>
+                            </div>
+                            <p className="text-sm leading-6 text-[#5F6E82]">{progress.description}</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                          <div className="rounded-2xl bg-white p-4 shadow-sm">
+                            <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[#5F6E82]">최근 공유</div>
+                            <div className="space-y-3">
+                              {activityFeed.map((item) => (
+                                <div key={item.id} className="rounded-xl bg-[#F6F9FC] px-3 py-3">
+                                  <div className="text-sm font-semibold text-[#0F1E32]">{item.title}</div>
+                                  <div className="mt-1 text-xs leading-5 text-[#5F6E82]">{item.description}</div>
+                                  <div className="mt-2 text-[11px] font-medium text-[#5F6E82]">
+                                    {formatDateTime(item.timestamp)}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl bg-white p-4 shadow-sm">
+                            <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#5F6E82]">
+                              <Flag size={14} />
+                              다음 체크포인트
+                            </div>
+                            <div className="space-y-3">
+                              {checkpoints.map((item) => (
+                                <div key={`${team.id}-${item}`} className="rounded-xl bg-[#F6F9FC] px-3 py-3 text-xs leading-5 text-[#0F1E32]">
+                                  {item}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     );

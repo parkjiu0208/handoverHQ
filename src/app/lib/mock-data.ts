@@ -110,7 +110,7 @@ export const SEED_HACKATHONS: Hackathon[] = [
     teamPolicy: [
       '팀장은 제출 권한을 갖고, 팀원은 초안 저장과 수정 제안이 가능합니다.',
       '팀 구성은 2명 이상 4명 이하입니다.',
-      '연락 링크는 공개되므로 접근 가능한 URL만 등록합니다.',
+      '팀 모집 카드에는 팀장 정보, 최근 진행상황, 다음 체크포인트가 공개됩니다.',
     ],
   },
   {
@@ -241,7 +241,7 @@ export const SEED_TEAMS: Team[] = [
     isRecruiting: true,
     desiredRoles: ['backend', 'designer'],
     techTags: ['React', 'Supabase', 'AI/ML'],
-    contactUrl: 'https://discord.gg/example',
+    contactUrl: '',
     updatedAt: '2026-03-24T20:10:00+09:00',
     members: [
       { profileId: 'user-front', displayName: '김프론트', roleLabel: '팀장 / 프론트엔드', isOwner: true },
@@ -260,7 +260,7 @@ export const SEED_TEAMS: Team[] = [
     isRecruiting: true,
     desiredRoles: ['frontend', 'smart-contract'],
     techTags: ['Solidity', 'Wallet', 'Next UI'],
-    contactUrl: 'https://t.me/example',
+    contactUrl: '',
     updatedAt: '2026-03-24T15:40:00+09:00',
     members: [
       { profileId: 'user-admin', displayName: '김운영', roleLabel: '팀장 / PM', isOwner: true },
@@ -278,7 +278,7 @@ export const SEED_TEAMS: Team[] = [
     isRecruiting: false,
     desiredRoles: [],
     techTags: ['Python', 'Data Viz'],
-    contactUrl: 'https://discord.gg/example2',
+    contactUrl: '',
     updatedAt: '2026-03-23T19:20:00+09:00',
     members: [
       { profileId: 'member-data-1', displayName: '장데이터', roleLabel: '팀장 / 데이터', isOwner: true },

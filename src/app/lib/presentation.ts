@@ -5,6 +5,7 @@ import type {
   HackathonStatus,
   Submission,
   SubmissionStatus,
+  TeamMember,
   Team,
   UserRole,
 } from '../types/domain';
@@ -51,6 +52,105 @@ export function getTeamFitLevel(preferredRole: UserRole | null, team: Team) {
     return { label: '판단 불가', tone: 'neutral' as const };
   }
   return { label: '보통', tone: 'medium' as const };
+}
+
+export function getTeamLeader(team: Team): TeamMember | null {
+  return team.members.find((member) => member.isOwner) ?? team.members[0] ?? null;
+}
+
+export function getTeamWorkspaceSummary(team: Team, hackathon: Hackathon | null) {
+  if (team.isRecruiting) {
+    return `${hackathon?.title ?? '현재 해커톤'} 기준으로 필요한 역할을 빠르게 맞추고, 역할 분담과 제출 준비를 한 곳에서 정리하는 팀입니다.`;
+  }
+
+  return '모집은 마감했고, 현재는 팀 내부에서 역할 분담과 제출 품질 점검에 집중하는 운영 모드입니다.';
+}
+
+export function getTeamProgressSnapshot(team: Team, submission: Submission | null, hasSubmittedEvidence = false) {
+  if (submission?.status === 'submitted' || hasSubmittedEvidence) {
+    return {
+      label: '최종 제출 완료',
+      tone: 'submitted' as const,
+      description: submission?.status === 'submitted'
+        ? '제출은 마무리됐고, 결과 확인과 후속 정리에 들어간 상태입니다.'
+        : '공개 리더보드 기준 제출이 반영된 상태입니다.',
+    };
+  }
+
+  if (submission) {
+    return {
+      label: '제출 준비 중',
+      tone: 'active' as const,
+      description: `초안 ${submission.versions.length}회 저장 기준으로 산출물 품질을 끌어올리는 단계입니다.`,
+    };
+  }
+
+  if (team.isRecruiting) {
+    return {
+      label: '팀 셋업 중',
+      tone: 'recruiting' as const,
+      description: '필요 역할을 보강하면서 MVP 범위와 작업 우선순위를 맞추는 단계입니다.',
+    };
+  }
+
+  return {
+    label: '구현 집중',
+    tone: 'default' as const,
+    description: '모집을 닫고 구현과 QA에 집중하는 단계입니다.',
+  };
+}
+
+export function getTeamActivityFeed(team: Team, submission: Submission | null, hackathon: Hackathon | null) {
+  const feed = [
+    {
+      id: `${team.id}-workspace`,
+      title: '팀 운영 기준 정리',
+      description:
+        team.desiredRoles.length > 0
+          ? `${team.desiredRoles.map((role) => ROLE_LABEL_MAP[role]).join(', ')} 기준으로 역할 분담을 조율 중입니다.`
+          : '현재 인원 기준으로 역할을 재정리하며 안정적으로 운영 중입니다.',
+      timestamp: team.updatedAt,
+    },
+  ];
+
+  if (submission) {
+    feed.unshift({
+      id: `${team.id}-submission`,
+      title: submission.status === 'submitted' ? '최종 제출 반영' : '제출 초안 업데이트',
+      description:
+        submission.status === 'submitted'
+          ? '최종 제출이 완료되어 결과 확인 단계로 전환했습니다.'
+          : `현재 제출 초안 버전은 ${submission.versions.length}회 저장되었습니다.`,
+      timestamp: submission.finalSubmittedAt ?? submission.updatedAt,
+    });
+  }
+
+  if (hackathon) {
+    feed.push({
+      id: `${team.id}-deadline`,
+      title: '다음 체크포인트',
+      description: `${hackathon.title} 제출 마감 전까지 핵심 산출물과 데모 링크를 점검해야 합니다.`,
+      timestamp: hackathon.submissionDeadline,
+    });
+  }
+
+  return feed;
+}
+
+export function getTeamCheckpointItems(team: Team, submission: Submission | null) {
+  const checkpoints = [
+    team.desiredRoles.length > 0
+      ? `필요 역할 ${team.desiredRoles.map((role) => ROLE_LABEL_MAP[role]).join(', ')} 충원 여부를 확정합니다.`
+      : '현재 인원 기준 역할 분담을 최종 확정합니다.',
+    team.techTags.length > 0
+      ? `${team.techTags.join(', ')} 기준으로 핵심 구현 범위를 다시 점검합니다.`
+      : '기술 스택과 MVP 범위를 다시 정리합니다.',
+    submission
+      ? '제출 초안, 배포 링크, GitHub 저장소를 함께 검수합니다.'
+      : '기획서, 배포 구조, 제출 준비 순서를 먼저 맞춥니다.',
+  ];
+
+  return checkpoints;
 }
 
 export function getNextAction(

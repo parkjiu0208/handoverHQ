@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import {
   Calendar,
@@ -10,7 +10,6 @@ import {
   TextAlignLeft,
   Users,
 } from '@phosphor-icons/react';
-import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
 import { useAppContext } from '../hooks/useAppContext';
@@ -28,6 +27,30 @@ export function Hackathons() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [sortMode, setSortMode] = useState<SortMode>('deadline');
   const [tagFilter, setTagFilter] = useState<string>('all');
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!sortMenuRef.current?.contains(event.target as Node)) {
+        setSortMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setSortMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
 
   const tags = useMemo(
     () => ['all', ...new Set(hackathons.flatMap((hackathon) => hackathon.tags))],
@@ -109,14 +132,47 @@ export function Hackathons() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
-                <Button
-                  variant="outline"
-                  className="min-w-fit shrink-0 whitespace-nowrap rounded-2xl bg-white px-4 shadow-md"
-                  onClick={() => setSortMode((current) => (current === 'deadline' ? 'latest' : 'deadline'))}
-                >
-                  <span>{sortMode === 'deadline' ? '마감일순' : '최신순'}</span>
-                  <CaretDown size={14} className="shrink-0" />
-                </Button>
+                <div ref={sortMenuRef} className="relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSortMenuOpen((open) => !open)}
+                    className="inline-flex min-w-fit items-center gap-2 whitespace-nowrap rounded-2xl border border-[#D6DEE8] bg-white px-4 py-3 text-sm font-bold text-[#0F1E32] shadow-md transition-colors hover:bg-[#F6F9FC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0064FF] focus-visible:ring-offset-2"
+                    aria-haspopup="menu"
+                    aria-expanded={sortMenuOpen}
+                  >
+                    <span>{sortMode === 'deadline' ? '마감일순' : '최신순'}</span>
+                    <CaretDown size={14} className={cn('shrink-0 transition-transform', sortMenuOpen && 'rotate-180')} />
+                  </button>
+
+                  {sortMenuOpen && (
+                    <div className="absolute right-0 top-[calc(100%+10px)] z-20 min-w-[150px] rounded-2xl border border-[#D6DEE8] bg-white p-2 shadow-[0_18px_45px_rgba(15,30,50,0.12)]">
+                      {[
+                        { value: 'deadline' as const, label: '마감일순' },
+                        { value: 'latest' as const, label: '최신순' },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            setSortMode(option.value);
+                            setSortMenuOpen(false);
+                          }}
+                          className={cn(
+                            'flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0064FF] focus-visible:ring-offset-2',
+                            sortMode === option.value
+                              ? 'bg-[#EBF5FF] text-[#0064FF]'
+                              : 'text-[#0F1E32] hover:bg-[#F6F9FC]'
+                          )}
+                        >
+                          <span>{option.label}</span>
+                          {sortMode === option.value && (
+                            <span className="text-[11px] font-bold uppercase tracking-wider">선택됨</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="flex shrink-0 rounded-2xl bg-white p-1.5 shadow-md">
                   <button
                     type="button"

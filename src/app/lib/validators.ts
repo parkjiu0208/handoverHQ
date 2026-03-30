@@ -19,7 +19,7 @@ export const teamFormSchema = z
     isRecruiting: z.boolean(),
     desiredRoles: z.array(z.enum(roleValues)).min(1, '모집 직군을 한 개 이상 선택해주세요.'),
     techTags: z.array(z.string()).max(5, '기술 태그는 최대 5개까지 입력할 수 있습니다.'),
-    contactUrl: z.string().trim().refine(isValidExternalUrl, '연락 링크는 http 또는 https URL이어야 합니다.'),
+    contactUrl: z.string().trim().refine((value) => value.length === 0 || isValidExternalUrl(value), '연락 링크는 비워두거나 http 또는 https URL이어야 합니다.'),
   })
   .refine((value) => value.currentSize <= value.maxSize, {
     message: '현재 인원은 최대 인원을 초과할 수 없습니다.',
