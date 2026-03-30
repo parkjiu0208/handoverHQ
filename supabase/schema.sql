@@ -10,6 +10,21 @@ begin
 end;
 $$;
 
+create or replace function public.is_team_member(target_team_id uuid, target_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from public.team_members tm
+    where tm.team_id = target_team_id
+      and tm.profile_id = target_user_id
+  );
+$$;
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text unique,
@@ -246,12 +261,7 @@ to anon, authenticated
 using (
   is_recruiting = true
   or owner_id = (select auth.uid())
-  or exists (
-    select 1
-    from public.team_members tm
-    where tm.team_id = teams.id
-      and tm.profile_id = (select auth.uid())
-  )
+  or public.is_team_member(id, (select auth.uid()))
 );
 
 drop policy if exists "teams_manage_owner" on public.teams;
