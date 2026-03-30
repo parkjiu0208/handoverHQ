@@ -1,8 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { List, SignOut, Sparkle, UserCircle, X } from '@phosphor-icons/react';
+import { CaretDown, List, SignOut, Sparkle, UserCircle, X } from '@phosphor-icons/react';
 import { Button } from './Button';
-import { Badge } from './Badge';
 import { useAppContext } from '../hooks/useAppContext';
 import { ROLE_LABEL_MAP } from '../lib/constants';
 import { cn } from '../lib/utils';
@@ -16,10 +15,34 @@ const navItems = [
 export function Header() {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const { currentUser, isSupabaseReady, openAuthDialog, signOut } = useAppContext();
 
   const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(`${path}/`);
   const roleLabel = currentUser?.primaryRole ? ROLE_LABEL_MAP[currentUser.primaryRole] : '관심 역할 미설정';
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!profileMenuRef.current?.contains(event.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setProfileMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 w-full bg-white/95 shadow-sm backdrop-blur-md">
@@ -51,37 +74,61 @@ export function Header() {
 
           <div className="hidden items-center gap-4 md:flex">
             {currentUser ? (
-              <>
-                <div className="flex items-center gap-3 rounded-2xl border border-[#D6DEE8] bg-white px-3 py-2 shadow-sm">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#EBF5FF] font-bold text-[#0064FF]">
+              <div ref={profileMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen((open) => !open)}
+                  className="inline-flex items-center gap-2 rounded-full border border-[#D6DEE8] bg-white px-2.5 py-2 text-left shadow-sm transition-colors hover:border-[#C5D0DE] hover:bg-[#F9FBFD] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0064FF] focus-visible:ring-offset-2"
+                >
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EBF5FF] text-sm font-bold text-[#0064FF]">
                     {currentUser.displayName.slice(0, 1)}
                   </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold text-[#0F1E32]">{currentUser.displayName}</div>
-                    <div className="truncate text-xs text-[#5F6E82]">{currentUser.email}</div>
+                  <span className="max-w-[120px] truncate text-sm font-semibold text-[#0F1E32]">
+                    {currentUser.displayName}
+                  </span>
+                  <CaretDown
+                    size={14}
+                    className={cn('text-[#5F6E82] transition-transform', profileMenuOpen && 'rotate-180')}
+                  />
+                </button>
+
+                {profileMenuOpen && (
+                  <div className="absolute right-0 top-[calc(100%+10px)] w-72 rounded-2xl border border-[#D6DEE8] bg-white p-2 shadow-[0_18px_45px_rgba(15,30,50,0.12)]">
+                    <div className="rounded-[18px] bg-[#F6F9FC] px-4 py-4">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#EBF5FF] text-sm font-bold text-[#0064FF]">
+                          {currentUser.displayName.slice(0, 1)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-bold text-[#0F1E32]">{currentUser.displayName}</div>
+                          <div className="mt-1 truncate text-xs text-[#5F6E82]">{currentUser.email}</div>
+                          <div className="mt-3 text-[11px] font-medium text-[#5F6E82]">{roleLabel}</div>
+                          {currentUser.isDemo && (
+                            <div className="mt-1 text-[11px] font-medium text-[#0064FF]">데모 계정</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        void signOut();
+                      }}
+                      className="mt-2 flex w-full items-center justify-between rounded-[18px] px-4 py-3 text-sm font-semibold text-[#0F1E32] transition-colors hover:bg-[#F6F9FC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0064FF] focus-visible:ring-offset-2"
+                    >
+                      <span>로그아웃</span>
+                      <SignOut size={16} className="text-[#5F6E82]" />
+                    </button>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <Badge variant={currentUser.isDemo ? 'active' : 'submitted'}>
-                      {currentUser.isDemo ? 'DEMO' : 'AUTH'}
-                    </Badge>
-                    <span className="text-[11px] font-medium text-[#5F6E82]">{roleLabel}</span>
-                  </div>
-                </div>
-                <Button variant="outline" className="rounded-2xl shadow-sm" onClick={() => void signOut()}>
-                  <SignOut size={16} />
-                  로그아웃
-                </Button>
-              </>
+                )}
+              </div>
             ) : (
-              <>
-                <div className="text-xs font-medium text-[#5F6E82]">
-                  {isSupabaseReady ? 'Supabase Auth 연결 가능' : '로컬 데모 모드'}
-                </div>
-                <Button variant="outline" className="rounded-2xl shadow-sm" onClick={openAuthDialog}>
-                  <Sparkle size={16} />
-                  로그인 / 데모 시작
-                </Button>
-              </>
+              <Button variant="outline" className="rounded-2xl shadow-sm" onClick={openAuthDialog}>
+                <Sparkle size={16} className="shrink-0" />
+                {isSupabaseReady ? '로그인' : '데모 시작'}
+              </Button>
             )}
           </div>
 
@@ -115,10 +162,30 @@ export function Header() {
 
               <div className="mt-4 px-4">
                 {currentUser ? (
-                  <Button variant="outline" className="w-full rounded-2xl shadow-sm" onClick={() => void signOut()}>
-                    <SignOut size={16} />
-                    로그아웃
-                  </Button>
+                  <div className="rounded-2xl bg-[#F6F9FC] p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#EBF5FF] text-sm font-bold text-[#0064FF]">
+                        {currentUser.displayName.slice(0, 1)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-bold text-[#0F1E32]">{currentUser.displayName}</div>
+                        <div className="truncate text-xs text-[#5F6E82]">{currentUser.email}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 text-xs font-medium text-[#5F6E82]">{roleLabel}</div>
+                    {currentUser.isDemo && <div className="mt-1 text-xs font-medium text-[#0064FF]">데모 계정</div>}
+                    <button
+                      type="button"
+                      className="mt-4 inline-flex items-center gap-2 rounded-full px-2 py-1 text-sm font-semibold text-[#0F1E32] transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0064FF] focus-visible:ring-offset-2"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        void signOut();
+                      }}
+                    >
+                      <SignOut size={16} />
+                      로그아웃
+                    </button>
+                  </div>
                 ) : (
                   <Button
                     variant="outline"

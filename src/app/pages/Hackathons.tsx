@@ -108,15 +108,16 @@ export function Hackathons() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
                 <Button
                   variant="outline"
-                  className="rounded-2xl bg-white shadow-md"
+                  className="min-w-fit shrink-0 whitespace-nowrap rounded-2xl bg-white px-4 shadow-md"
                   onClick={() => setSortMode((current) => (current === 'deadline' ? 'latest' : 'deadline'))}
                 >
-                  {sortMode === 'deadline' ? '마감일순' : '최신순'} <CaretDown size={14} />
+                  <span>{sortMode === 'deadline' ? '마감일순' : '최신순'}</span>
+                  <CaretDown size={14} className="shrink-0" />
                 </Button>
-                <div className="flex rounded-2xl bg-white p-1.5 shadow-md">
+                <div className="flex shrink-0 rounded-2xl bg-white p-1.5 shadow-md">
                   <button
                     type="button"
                     onClick={() => setViewMode('list')}
