@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "auth:sync-email": "node scripts/update-supabase-auth-email-config.mjs",
     "build": "vite build",
     "dev": "vite",
     "preview": "vite preview",

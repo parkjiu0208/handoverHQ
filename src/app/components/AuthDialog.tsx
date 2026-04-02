@@ -31,7 +31,7 @@ export function AuthDialog() {
             <h2 className="text-xl font-bold text-[#0F1E32]">계속하려면 로그인</h2>
             <p className="mt-1 text-sm text-[#5F6E82]">
               {isSupabaseReady
-                ? '이메일 매직링크 또는 GitHub 로그인으로 이어서 작업합니다.'
+                ? '이메일 로그인 링크 또는 GitHub 로그인으로 Handover HQ에 이어서 들어갑니다.'
                 : '현재는 데모 모드입니다. 입력값은 브라우저에만 저장됩니다.'}
             </p>
           </div>
@@ -84,7 +84,7 @@ export function AuthDialog() {
           </div>
 
           <div className="rounded-2xl bg-[#EEF3F8] p-4 text-sm text-[#5F6E82]">
-            팀 생성, 제출 저장, Team Fit 계산은 로그인 상태에서만 활성화됩니다.
+            로그인 후에는 팀 참여 요청, 제출 저장, 팀 공간 관리가 모두 열립니다.
           </div>
 
           <div className="flex flex-col gap-3">
@@ -93,7 +93,7 @@ export function AuthDialog() {
               className="w-full"
               onClick={() => requestAuth({ email, displayName, primaryRole })}
             >
-              {isSupabaseReady ? '이메일 매직링크 받기' : '데모 로그인'}
+              {isSupabaseReady ? 'Handover HQ 로그인 링크 받기' : '데모 로그인'}
             </Button>
             <Button
               type="button"

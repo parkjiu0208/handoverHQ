@@ -50,11 +50,20 @@ VITE_SUPABASE_SUBMISSION_BUCKET=hackathon-submissions
 
 ```env
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_ACCESS_TOKEN=your-supabase-management-access-token
+SUPABASE_PROJECT_REF=your-project-ref
+SUPABASE_SMTP_ADMIN_EMAIL=no-reply@auth.example.com
+SUPABASE_SMTP_HOST=smtp.example.com
+SUPABASE_SMTP_PORT=587
+SUPABASE_SMTP_USER=your-smtp-user
+SUPABASE_SMTP_PASS=your-smtp-password
+SUPABASE_SMTP_SENDER_NAME=Handover HQ
 ```
 
 주의:
 - `VITE_` 접두사가 붙은 값만 브라우저 번들에 노출됩니다.
 - `SUPABASE_SERVICE_ROLE_KEY`는 절대 `VITE_`로 두면 안 됩니다.
+- `SUPABASE_ACCESS_TOKEN`은 Supabase Dashboard 계정 토큰이며, Auth 메일 템플릿/SMTP 설정 동기화에만 사용합니다.
 - Vercel에서는 `Development`, `Preview`, `Production` 환경에 각각 동일한 키를 등록해야 합니다.
 
 ## 현재 구현 범위
@@ -83,6 +92,26 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 이미 운영 중인 Supabase 프로젝트라면:
 - `supabase/policy-fix.sql`로 공개 팀 조회 정책을 먼저 최신 상태로 맞춥니다.
 - `supabase/team-join-requests.sql`을 추가 실행해 팀 참여 요청 테이블과 RLS를 반영합니다.
+
+## 인증 메일 브랜딩
+로그인/회원가입 메일을 `Handover HQ` 톤의 한글 메일로 맞추기 위한 템플릿과 동기화 스크립트를 포함합니다.
+
+1. `.env.local` 또는 쉘 환경에 `SUPABASE_ACCESS_TOKEN`을 넣습니다.
+2. 메일 발신자 이름까지 `Handover HQ`로 바꾸려면 SMTP 값도 함께 채웁니다.
+3. 아래 명령을 실행합니다.
+
+```bash
+npm run auth:sync-email
+```
+
+포함된 파일:
+- `supabase/templates/confirm-signup.html`
+- `supabase/templates/magic-link.html`
+- `scripts/update-supabase-auth-email-config.mjs`
+
+주의:
+- SMTP를 설정하지 않으면 메일 제목과 본문은 바뀌어도 메일 앱에서 보이는 발신자 이름은 여전히 `Supabase Auth`일 수 있습니다.
+- Supabase 기본 SMTP는 테스트용 제약이 있어 운영 환경에서는 custom SMTP 설정이 필요합니다.
 
 ## Supabase 시드 데이터 넣기
 `.env.local`에 실제 Supabase 값이 들어간 뒤 아래 명령으로 초기 데이터를 채울 수 있습니다.
