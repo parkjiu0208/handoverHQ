@@ -88,6 +88,20 @@ function buildRankings(entries: BootstrapData['leaderboardEntries']): RankingSum
     }));
 }
 
+function showJoinRequestSuccessToast() {
+  toast.custom(
+    () => (
+      <div className="pointer-events-auto w-[360px] rounded-[24px] border border-white/10 bg-[#05060B] px-5 py-4 text-white shadow-[0_24px_60px_rgba(5,6,11,0.4)]">
+        <div className="text-sm font-black tracking-tight">요청을 보냈습니다!</div>
+        <div className="mt-1 text-sm leading-6 text-white/72">
+          팀장이 요청을 수락할 때까지 조금만 기다려주세요.
+        </div>
+      </div>
+    ),
+    { duration: 3200 }
+  );
+}
+
 export function AppProvider({ children }: PropsWithChildren) {
   const demoUser = useAppStore((state) => state.demoUser);
   const preferredRole = useAppStore((state) => state.preferredRole);
@@ -480,9 +494,7 @@ export function AppProvider({ children }: PropsWithChildren) {
 
       const createdRequest = await createTeamJoinRequest(parsed.data, nextUser);
       replaceJoinRequestInState(createdRequest);
-      toast.success('팀 참여 요청을 보냈습니다.', {
-        description: '팀장이 확인하면 상태가 바로 갱신됩니다.',
-      });
+      showJoinRequestSuccessToast();
       return true;
     } catch (error) {
       if (error instanceof Error && error.message === 'AUTH_REQUIRED') {

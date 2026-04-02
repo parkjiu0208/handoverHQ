@@ -89,6 +89,15 @@ export function Camp() {
     setTechTagsInput(editingTeam.techTags.join(', '));
   }, [editingTeam]);
 
+  const joinRequestsByTeam = useMemo(
+    () =>
+      joinRequests.reduce<Record<string, typeof joinRequests>>((accumulator, request) => {
+        accumulator[request.teamId] = [...(accumulator[request.teamId] ?? []), request];
+        return accumulator;
+      }, {}),
+    [joinRequests]
+  );
+
   if (dataLoading) {
     return <LoadingSkeleton />;
   }
@@ -107,14 +116,6 @@ export function Camp() {
   });
 
   const myTeams = getMyTeams(teams, currentUser);
-  const joinRequestsByTeam = useMemo(
-    () =>
-      joinRequests.reduce<Record<string, typeof joinRequests>>((accumulator, request) => {
-        accumulator[request.teamId] = [...(accumulator[request.teamId] ?? []), request];
-        return accumulator;
-      }, {}),
-    [joinRequests]
-  );
 
   function openCreateForm() {
     if (!currentUser) {
