@@ -4,6 +4,7 @@ import type {
   LeaderboardEntry,
   Submission,
   Team,
+  TeamJoinRequest,
 } from '../types/domain';
 
 export const SEED_USERS: AppUser[] = [
@@ -286,6 +287,39 @@ export const SEED_TEAMS: Team[] = [
       { profileId: 'member-data-3', displayName: '강백엔드', roleLabel: '백엔드', isOwner: false },
       { profileId: 'member-data-4', displayName: '윤디자인', roleLabel: '디자인', isOwner: false },
     ],
+  },
+];
+
+export const SEED_TEAM_JOIN_REQUESTS: TeamJoinRequest[] = [
+  {
+    id: 'request-web3-front',
+    teamId: 'team-web3-warriors',
+    applicantId: 'user-front',
+    applicantName: '김프론트',
+    applicantEmail: 'frontend@handoverhq.dev',
+    requestedRole: 'frontend',
+    introMessage: '웹 프론트 구현과 배포 자동화까지 맡을 수 있어요. 빠르게 MVP 붙여보고 싶습니다.',
+    status: 'pending',
+    createdAt: '2026-03-29T19:10:00+09:00',
+    updatedAt: '2026-03-29T19:10:00+09:00',
+    reviewedAt: null,
+    reviewedBy: null,
+    decisionNote: '',
+  },
+  {
+    id: 'request-ai-designer',
+    teamId: 'team-ai-innovators',
+    applicantId: 'applicant-designer-1',
+    applicantName: '윤디자인',
+    applicantEmail: 'designer@seed.handoverhq.dev',
+    requestedRole: 'designer',
+    introMessage: '서비스 랜딩과 제출용 데모 화면을 빠르게 정리해드릴 수 있습니다.',
+    status: 'pending',
+    createdAt: '2026-03-30T09:20:00+09:00',
+    updatedAt: '2026-03-30T09:20:00+09:00',
+    reviewedAt: null,
+    reviewedBy: null,
+    decisionNote: '',
   },
 ];
 

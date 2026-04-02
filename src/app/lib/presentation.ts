@@ -7,6 +7,8 @@ import type {
   SubmissionStatus,
   TeamMember,
   Team,
+  TeamJoinRequest,
+  TeamJoinRequestStatus,
   UserRole,
 } from '../types/domain';
 
@@ -18,6 +20,13 @@ export function getHackathonStatusLabel(status: HackathonStatus) {
 
 export function getSubmissionStatusLabel(status: SubmissionStatus) {
   return status === 'submitted' ? '제출 완료' : '초안 저장';
+}
+
+export function getTeamJoinRequestStatusLabel(status: TeamJoinRequestStatus) {
+  if (status === 'pending') return '검토 중';
+  if (status === 'accepted') return '합류 승인';
+  if (status === 'rejected') return '거절됨';
+  return '요청 취소';
 }
 
 export function getRoleLabel(role: UserRole | null) {
@@ -56,6 +65,22 @@ export function getTeamFitLevel(preferredRole: UserRole | null, team: Team) {
 
 export function getTeamLeader(team: Team): TeamMember | null {
   return team.members.find((member) => member.isOwner) ?? team.members[0] ?? null;
+}
+
+export function getMyJoinRequestForTeam(joinRequests: TeamJoinRequest[], teamId: string, userId: string | null) {
+  if (!userId) {
+    return null;
+  }
+
+  return (
+    [...joinRequests]
+      .filter((request) => request.teamId === teamId && request.applicantId === userId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null
+  );
+}
+
+export function getPendingJoinRequestsForTeam(joinRequests: TeamJoinRequest[], teamId: string) {
+  return joinRequests.filter((request) => request.teamId === teamId && request.status === 'pending');
 }
 
 export function getTeamWorkspaceSummary(team: Team, hackathon: Hackathon | null) {

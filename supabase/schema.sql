@@ -89,6 +89,22 @@ create table if not exists public.team_members (
   unique (team_id, profile_id)
 );
 
+create table if not exists public.team_join_requests (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references public.teams (id) on delete cascade,
+  applicant_id uuid not null references public.profiles (id) on delete cascade,
+  applicant_name text not null,
+  applicant_email text not null,
+  requested_role text not null,
+  intro_message text not null,
+  status text not null check (status in ('pending', 'accepted', 'rejected', 'cancelled')) default 'pending',
+  reviewed_at timestamptz,
+  reviewed_by uuid references public.profiles (id) on delete set null,
+  decision_note text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.submissions (
   id uuid primary key default gen_random_uuid(),
   hackathon_id uuid not null references public.hackathons (id) on delete cascade,
@@ -147,6 +163,11 @@ create index if not exists idx_teams_hackathon_id on public.teams (hackathon_id)
 create index if not exists idx_teams_owner_id on public.teams (owner_id);
 create index if not exists idx_team_members_team_id on public.team_members (team_id);
 create index if not exists idx_team_members_profile_id on public.team_members (profile_id);
+create index if not exists idx_team_join_requests_team_id on public.team_join_requests (team_id);
+create index if not exists idx_team_join_requests_applicant_id on public.team_join_requests (applicant_id);
+create unique index if not exists idx_team_join_requests_pending_unique
+on public.team_join_requests (team_id, applicant_id)
+where status = 'pending';
 create index if not exists idx_submissions_hackathon_id on public.submissions (hackathon_id);
 create index if not exists idx_submissions_team_id on public.submissions (team_id);
 create index if not exists idx_submission_versions_submission_id on public.submission_versions (submission_id);
@@ -186,6 +207,11 @@ create trigger set_submissions_updated_at
 before update on public.submissions
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_team_join_requests_updated_at on public.team_join_requests;
+create trigger set_team_join_requests_updated_at
+before update on public.team_join_requests
+for each row execute function public.set_updated_at();
+
 drop trigger if exists set_leaderboard_entries_updated_at on public.leaderboard_entries;
 create trigger set_leaderboard_entries_updated_at
 before update on public.leaderboard_entries
@@ -220,6 +246,7 @@ alter table public.profiles enable row level security;
 alter table public.hackathons enable row level security;
 alter table public.teams enable row level security;
 alter table public.team_members enable row level security;
+alter table public.team_join_requests enable row level security;
 alter table public.submissions enable row level security;
 alter table public.submission_versions enable row level security;
 alter table public.leaderboard_entries enable row level security;
@@ -311,6 +338,78 @@ with check (
     where t.id = team_members.team_id
       and t.owner_id = (select auth.uid())
   )
+);
+
+drop policy if exists "team_join_requests_select_applicant_or_owner" on public.team_join_requests;
+create policy "team_join_requests_select_applicant_or_owner"
+on public.team_join_requests
+for select
+to authenticated
+using (
+  applicant_id = (select auth.uid())
+  or exists (
+    select 1
+    from public.teams t
+    where t.id = team_join_requests.team_id
+      and t.owner_id = (select auth.uid())
+  )
+);
+
+drop policy if exists "team_join_requests_insert_applicant" on public.team_join_requests;
+create policy "team_join_requests_insert_applicant"
+on public.team_join_requests
+for insert
+to authenticated
+with check (
+  applicant_id = (select auth.uid())
+  and status = 'pending'
+  and exists (
+    select 1
+    from public.teams t
+    where t.id = team_join_requests.team_id
+      and t.is_recruiting = true
+      and t.owner_id <> (select auth.uid())
+      and not public.is_team_member(t.id, (select auth.uid()))
+  )
+);
+
+drop policy if exists "team_join_requests_update_applicant_cancel" on public.team_join_requests;
+create policy "team_join_requests_update_applicant_cancel"
+on public.team_join_requests
+for update
+to authenticated
+using (
+  applicant_id = (select auth.uid())
+  and status = 'pending'
+)
+with check (
+  applicant_id = (select auth.uid())
+  and status = 'cancelled'
+  and reviewed_by is null
+);
+
+drop policy if exists "team_join_requests_update_owner_review" on public.team_join_requests;
+create policy "team_join_requests_update_owner_review"
+on public.team_join_requests
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.teams t
+    where t.id = team_join_requests.team_id
+      and t.owner_id = (select auth.uid())
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.teams t
+    where t.id = team_join_requests.team_id
+      and t.owner_id = (select auth.uid())
+  )
+  and status in ('accepted', 'rejected')
+  and reviewed_by = (select auth.uid())
 );
 
 drop policy if exists "submissions_select_team_member" on public.submissions;

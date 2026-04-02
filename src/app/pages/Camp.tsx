@@ -1,18 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChatCircleText, Flag, MagnifyingGlass, PencilSimple, Plus, UserCircle, Users, X } from '@phosphor-icons/react';
 import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
+import { TeamJoinRequestDialog } from '../components/TeamJoinRequestDialog';
+import { TeamJoinRequestsManagerDialog } from '../components/TeamJoinRequestsManagerDialog';
 import { useAppContext } from '../hooks/useAppContext';
 import { ROLE_OPTIONS } from '../lib/constants';
 import { formatDateTime } from '../lib/date';
 import {
+  getMyJoinRequestForTeam,
   getMyTeams,
+  getPendingJoinRequestsForTeam,
   getSubmissionForTeam,
   getTeamActivityFeed,
   getTeamCheckpointItems,
   getTeamFitLevel,
+  getTeamJoinRequestStatusLabel,
   getTeamLeader,
   getTeamProgressSnapshot,
   getTeamWorkspaceSummary,
@@ -39,9 +44,13 @@ export function Camp() {
     dataLoading,
     hackathons,
     teams,
+    joinRequests,
     leaderboardEntries,
     submissions,
     saveTeam,
+    requestTeamJoin,
+    cancelTeamJoinRequest,
+    reviewTeamJoinRequest,
     openAuthDialog,
   } = useAppContext();
 
@@ -53,6 +62,10 @@ export function Camp() {
   const [searchQuery, setSearchQuery] = useState('');
   const [techTagsInput, setTechTagsInput] = useState('');
   const [formState, setFormState] = useState<TeamFormInput>(defaultFormState);
+  const [joinDialogTeam, setJoinDialogTeam] = useState<Team | null>(null);
+  const [manageRequestTeam, setManageRequestTeam] = useState<Team | null>(null);
+  const [requestingTeamId, setRequestingTeamId] = useState<string | null>(null);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!editingTeam) {
@@ -94,6 +107,14 @@ export function Camp() {
   });
 
   const myTeams = getMyTeams(teams, currentUser);
+  const joinRequestsByTeam = useMemo(
+    () =>
+      joinRequests.reduce<Record<string, typeof joinRequests>>((accumulator, request) => {
+        accumulator[request.teamId] = [...(accumulator[request.teamId] ?? []), request];
+        return accumulator;
+      }, {}),
+    [joinRequests]
+  );
 
   function openCreateForm() {
     if (!currentUser) {
@@ -109,6 +130,15 @@ export function Camp() {
     setShowCreateForm(true);
   }
 
+  function openJoinDialog(team: Team) {
+    if (!currentUser) {
+      openAuthDialog();
+      return;
+    }
+
+    setJoinDialogTeam(team);
+  }
+
   async function handleSave() {
     await saveTeam({
       ...formState,
@@ -119,6 +149,25 @@ export function Camp() {
     });
     setShowCreateForm(false);
     setEditingTeam(null);
+  }
+
+  async function handleJoinSubmit(input: { teamId: string; requestedRole: UserRole; introMessage: string }) {
+    setRequestingTeamId(input.teamId);
+    await requestTeamJoin(input);
+    setRequestingTeamId(null);
+    setJoinDialogTeam(null);
+  }
+
+  async function handleCancelJoinRequest(requestId: string) {
+    setProcessingRequestId(requestId);
+    await cancelTeamJoinRequest(requestId);
+    setProcessingRequestId(null);
+  }
+
+  async function handleReviewJoinRequest(requestId: string, status: 'accepted' | 'rejected') {
+    setProcessingRequestId(requestId);
+    await reviewTeamJoinRequest(requestId, status);
+    setProcessingRequestId(null);
   }
 
   return (
@@ -197,20 +246,42 @@ export function Camp() {
             <div className="mb-8 rounded-2xl bg-white p-6 shadow-sm">
               <div className="mb-4 text-sm font-bold uppercase tracking-wider text-[#5F6E82]">내 팀</div>
               <div className="grid gap-4 md:grid-cols-2">
-                {myTeams.map((team) => (
-                  <div key={team.id} className="rounded-2xl bg-[#F6F9FC] p-5">
-                    <div className="mb-2 flex items-center justify-between">
-                      <div className="text-lg font-bold text-[#0F1E32]">{team.name}</div>
-                      <Button variant="outline" size="sm" onClick={() => startEdit(team)}>
-                        <PencilSimple size={14} />
-                        수정
-                      </Button>
+                {myTeams.map((team) => {
+                  const pendingCount = getPendingJoinRequestsForTeam(joinRequests, team.id).length;
+
+                  return (
+                    <div key={team.id} className="rounded-2xl bg-[#F6F9FC] p-5">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-lg font-bold text-[#0F1E32]">{team.name}</div>
+                          <div className="text-sm text-[#5F6E82]">
+                            {hackathons.find((hackathon) => hackathon.id === team.hackathonId)?.title}
+                          </div>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => startEdit(team)}>
+                          <PencilSimple size={14} />
+                          수정
+                        </Button>
+                      </div>
+
+                      {team.ownerId === currentUser?.id && (
+                        <div className="mt-4 flex items-center justify-between rounded-2xl bg-white px-4 py-3">
+                          <div>
+                            <div className="text-xs font-black uppercase tracking-wider text-[#5F6E82]">대기 중 요청</div>
+                            <div className="mt-1 text-sm font-bold text-[#0F1E32]">{pendingCount}건</div>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="rounded-2xl"
+                            onClick={() => setManageRequestTeam(team)}
+                          >
+                            요청 관리
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-sm text-[#5F6E82]">
-                      {hackathons.find((hackathon) => hackathon.id === team.hackathonId)?.title}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -237,6 +308,10 @@ export function Camp() {
                 const progress = getTeamProgressSnapshot(team, teamSubmission, hasPublicSubmission);
                 const activityFeed = getTeamActivityFeed(team, teamSubmission, linkedHackathon).slice(0, 2);
                 const checkpoints = getTeamCheckpointItems(team, teamSubmission).slice(0, 2);
+                const isMyTeam =
+                  Boolean(currentUser) &&
+                  (team.ownerId === currentUser?.id || team.members.some((member) => member.profileId === currentUser?.id));
+                const myJoinRequest = getMyJoinRequestForTeam(joinRequests, team.id, currentUser?.id ?? null);
 
                 return (
                   <div key={team.id} className="group flex flex-col rounded-2xl bg-white p-6 shadow-md transition-all hover:shadow-xl">
@@ -371,9 +446,68 @@ export function Camp() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between border-t border-[#F6F9FC] pt-4">
-                        <div className="text-xs font-medium text-[#5F6E82]">{formatDateTime(team.updatedAt)} 업데이트</div>
-                        <div className="text-xs font-semibold text-[#5F6E82]">{progress.description}</div>
+                      <div className="space-y-3 border-t border-[#F6F9FC] pt-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-xs font-medium text-[#5F6E82]">{formatDateTime(team.updatedAt)} 업데이트</div>
+                          <div className="text-right text-xs font-semibold text-[#5F6E82]">{progress.description}</div>
+                        </div>
+
+                        <div className="flex flex-col gap-3 rounded-2xl bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="text-xs font-black uppercase tracking-wider text-[#5F6E82]">참여 상태</div>
+                            <div className="mt-1 text-sm font-semibold text-[#0F1E32]">
+                              {isMyTeam
+                                ? '이미 참여 중인 팀입니다.'
+                                : myJoinRequest
+                                  ? getTeamJoinRequestStatusLabel(myJoinRequest.status)
+                                  : team.isRecruiting
+                                    ? '지금 바로 팀 참여 요청을 보낼 수 있습니다.'
+                                    : '현재는 모집이 마감된 팀입니다.'}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            {isMyTeam ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="rounded-2xl"
+                                onClick={() => team.ownerId === currentUser?.id ? setManageRequestTeam(team) : undefined}
+                                disabled={team.ownerId !== currentUser?.id}
+                              >
+                                {team.ownerId === currentUser?.id ? '내 팀 관리' : '참여 중'}
+                              </Button>
+                            ) : myJoinRequest?.status === 'pending' ? (
+                              <>
+                                <span className="rounded-full bg-[#EBF5FF] px-2.5 py-1 text-[11px] font-bold text-[#0064FF]">
+                                  요청 완료
+                                </span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-2xl"
+                                  onClick={() => void handleCancelJoinRequest(myJoinRequest.id)}
+                                  disabled={processingRequestId === myJoinRequest.id}
+                                >
+                                  요청 취소
+                                </Button>
+                              </>
+                            ) : myJoinRequest?.status === 'accepted' ? (
+                              <span className="rounded-full bg-[#E8FFF3] px-2.5 py-1 text-[11px] font-bold text-[#0D8F57]">
+                                합류 승인
+                              </span>
+                            ) : (
+                              <Button
+                                size="sm"
+                                className="rounded-2xl"
+                                onClick={() => openJoinDialog(team)}
+                                disabled={!team.isRecruiting || requestingTeamId === team.id}
+                              >
+                                팀 참여 요청
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -544,6 +678,24 @@ export function Camp() {
           </div>
         </div>
       )}
+
+      <TeamJoinRequestDialog
+        open={Boolean(joinDialogTeam)}
+        team={joinDialogTeam}
+        preferredRole={currentUser?.primaryRole ?? preferredRole}
+        submitting={Boolean(joinDialogTeam && requestingTeamId === joinDialogTeam.id)}
+        onClose={() => setJoinDialogTeam(null)}
+        onSubmit={handleJoinSubmit}
+      />
+
+      <TeamJoinRequestsManagerDialog
+        open={Boolean(manageRequestTeam)}
+        team={manageRequestTeam}
+        requests={manageRequestTeam ? (joinRequestsByTeam[manageRequestTeam.id] ?? []) : []}
+        processingId={processingRequestId}
+        onClose={() => setManageRequestTeam(null)}
+        onReview={handleReviewJoinRequest}
+      />
     </div>
   );
 }

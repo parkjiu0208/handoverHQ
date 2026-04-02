@@ -15,16 +15,18 @@ import {
 } from '../lib/auth';
 import { appEnv } from '../lib/env';
 import {
+  createTeamJoinRequest,
   loadBootstrapData,
   loadFallbackBootstrapData,
   mapSupabaseUser,
   saveSubmission,
   saveTeam as persistTeam,
+  updateTeamJoinRequestStatus,
   upsertProfile,
 } from '../lib/repository';
 import { uploadSubmissionPdf as persistSubmissionPdf } from '../lib/storage';
 import { getSupabaseBrowserClient } from '../lib/supabase';
-import { authRequestSchema, submissionFormSchema, teamFormSchema } from '../lib/validators';
+import { authRequestSchema, submissionFormSchema, teamFormSchema, teamJoinRequestSchema } from '../lib/validators';
 import { useAppStore } from '../stores/useAppStore';
 import type { User } from '@supabase/supabase-js';
 import type {
@@ -43,6 +45,7 @@ import type {
 const emptyData: BootstrapData = {
   hackathons: [],
   teams: [],
+  joinRequests: [],
   submissions: [],
   leaderboardEntries: [],
 };
@@ -283,6 +286,8 @@ export function AppProvider({ children }: PropsWithChildren) {
       options: {
         emailRedirectTo: getCurrentAuthReturnUrl(),
         data: {
+          app_name: 'Handover HQ',
+          language: 'ko',
           display_name: parsed.data.displayName,
           full_name: parsed.data.displayName,
           primary_role: parsed.data.primaryRole,
@@ -296,7 +301,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       return;
     }
 
-    toast.success('매직링크를 전송했습니다. 메일함을 확인해주세요.');
+    toast.success('Handover HQ 로그인 메일을 보냈습니다. 메일함에서 인증 링크를 확인해주세요.');
     setAuthDialogOpen(false);
   }
 
@@ -390,6 +395,121 @@ export function AppProvider({ children }: PropsWithChildren) {
         return;
       }
       toast.error(error instanceof Error ? error.message : '팀 정보를 저장하지 못했습니다.');
+    }
+  }
+
+  async function requestTeamJoin(input: { teamId: string; requestedRole: UserRole; introMessage: string }) {
+    try {
+      const parsed = teamJoinRequestSchema.safeParse(input);
+      if (!parsed.success) {
+        toast.error(parsed.error.issues[0]?.message ?? '지원 정보를 다시 확인해주세요.');
+        return;
+      }
+
+      const nextUser = await ensureAuthenticatedUser();
+      const team = data.teams.find((candidate) => candidate.id === parsed.data.teamId);
+      if (!team) {
+        toast.error('지원할 팀을 찾지 못했습니다.');
+        return;
+      }
+
+      if (!team.isRecruiting) {
+        toast.error('현재는 모집이 마감된 팀입니다.');
+        return;
+      }
+
+      const isMember =
+        team.ownerId === nextUser.id || team.members.some((member) => member.profileId === nextUser.id);
+      if (isMember) {
+        toast.error('이미 이 팀에 속해 있습니다.');
+        return;
+      }
+
+      const existingTeamInHackathon = data.teams.find(
+        (candidate) =>
+          candidate.hackathonId === team.hackathonId &&
+          (candidate.ownerId === nextUser.id || candidate.members.some((member) => member.profileId === nextUser.id))
+      );
+      if (existingTeamInHackathon) {
+        toast.error('같은 해커톤에는 하나의 팀에만 참여할 수 있습니다.');
+        return;
+      }
+
+      const pendingRequest = data.joinRequests.find(
+        (request) =>
+          request.teamId === team.id &&
+          request.applicantId === nextUser.id &&
+          request.status === 'pending'
+      );
+      if (pendingRequest) {
+        toast.message('이미 검토 중인 참여 요청이 있습니다.');
+        return;
+      }
+
+      await createTeamJoinRequest(parsed.data, nextUser);
+      await refreshData();
+      toast.success('팀 참여 요청을 보냈습니다. 팀장 검토 후 결과가 반영됩니다.');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : '팀 참여 요청을 보내지 못했습니다.');
+    }
+  }
+
+  async function cancelTeamJoinRequest(requestId: string) {
+    try {
+      const nextUser = await ensureAuthenticatedUser();
+      const request = data.joinRequests.find((candidate) => candidate.id === requestId);
+      if (!request || request.applicantId !== nextUser.id || request.status !== 'pending') {
+        toast.error('취소할 수 있는 요청이 없습니다.');
+        return;
+      }
+
+      await updateTeamJoinRequestStatus(request, 'cancelled', nextUser);
+      await refreshData();
+      toast.success('팀 참여 요청을 취소했습니다.');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : '팀 참여 요청을 취소하지 못했습니다.');
+    }
+  }
+
+  async function reviewTeamJoinRequest(requestId: string, status: 'accepted' | 'rejected') {
+    try {
+      const nextUser = await ensureAuthenticatedUser();
+      const request = data.joinRequests.find((candidate) => candidate.id === requestId);
+      if (!request) {
+        toast.error('검토할 요청을 찾지 못했습니다.');
+        return;
+      }
+
+      const team = data.teams.find((candidate) => candidate.id === request.teamId);
+      if (!team || team.ownerId !== nextUser.id) {
+        toast.error('요청 검토는 팀장만 할 수 있습니다.');
+        return;
+      }
+
+      if (request.status !== 'pending') {
+        toast.message('이미 처리된 요청입니다.');
+        return;
+      }
+
+      if (status === 'accepted' && team.currentSize >= team.maxSize) {
+        toast.error('정원이 가득 차 있어 승인할 수 없습니다.');
+        return;
+      }
+
+      await updateTeamJoinRequestStatus(request, status, nextUser, team);
+      await refreshData();
+      toast.success(status === 'accepted' ? '팀 참여 요청을 승인했습니다.' : '팀 참여 요청을 거절했습니다.');
+    } catch (error) {
+      if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
+        return;
+      }
+      toast.error(error instanceof Error ? error.message : '팀 참여 요청을 처리하지 못했습니다.');
     }
   }
 
@@ -542,6 +662,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         authDialogOpen,
         hackathons: data.hackathons,
         teams: data.teams,
+        joinRequests: data.joinRequests,
         submissions: data.submissions,
         leaderboardEntries: data.leaderboardEntries,
         rankings,
@@ -553,6 +674,9 @@ export function AppProvider({ children }: PropsWithChildren) {
         signOut,
         refreshData,
         saveTeam,
+        requestTeamJoin,
+        cancelTeamJoinRequest,
+        reviewTeamJoinRequest,
         saveSubmissionDraft: (input) => commitSubmission(input, false),
         finalizeSubmission: (input) => commitSubmission(input, true),
         uploadSubmissionPdf,

@@ -23,22 +23,27 @@ import { Badge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
+import { TeamJoinRequestDialog } from '../components/TeamJoinRequestDialog';
+import { TeamJoinRequestsManagerDialog } from '../components/TeamJoinRequestsManagerDialog';
 import { useAppContext } from '../hooks/useAppContext';
 import { ROLE_LABEL_MAP, STORAGE_KEYS } from '../lib/constants';
 import { formatDateTime, formatKoreanDate, getDdayLabel } from '../lib/date';
 import {
   getHackathonStatusLabel,
+  getMyJoinRequestForTeam,
+  getPendingJoinRequestsForTeam,
   getSubmissionForTeam,
   getSubmissionStatusLabel,
   getTeamActivityFeed,
   getTeamCheckpointItems,
   getTeamLeader,
+  getTeamJoinRequestStatusLabel,
   getTeamProgressSnapshot,
   getTeamWorkspaceSummary,
 } from '../lib/presentation';
 import { cn } from '../lib/utils';
 import { submissionFormSchema } from '../lib/validators';
-import type { SubmissionFormInput } from '../types/domain';
+import type { SubmissionFormInput, Team, UserRole } from '../types/domain';
 
 const tabs = [
   { id: 'overview', label: '개요' },
@@ -94,9 +99,13 @@ export function HackathonDetail() {
     isSupabaseReady,
     hackathons,
     teams,
+    joinRequests,
     submissions,
     leaderboardEntries,
     openAuthDialog,
+    requestTeamJoin,
+    cancelTeamJoinRequest,
+    reviewTeamJoinRequest,
     getHackathonBySlug,
     getMyTeamForHackathon,
     getSubmissionForHackathon,
@@ -111,6 +120,10 @@ export function HackathonDetail() {
   const [pdfUploadState, setPdfUploadState] = useState<'idle' | 'uploading'>('idle');
   const [pdfUploadError, setPdfUploadError] = useState('');
   const [lastUploadedFileName, setLastUploadedFileName] = useState('');
+  const [joinDialogTeam, setJoinDialogTeam] = useState<Team | null>(null);
+  const [manageRequestTeam, setManageRequestTeam] = useState<Team | null>(null);
+  const [requestingTeamId, setRequestingTeamId] = useState<string | null>(null);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const hackathon = getHackathonBySlug(slug);
@@ -138,6 +151,25 @@ export function HackathonDetail() {
       .filter((entry) => entry.hackathonId === hackathon.id)
       .sort((left, right) => left.rank - right.rank || right.totalScore - left.totalScore);
   }, [hackathon, leaderboardEntries]);
+
+  async function handleJoinSubmit(input: { teamId: string; requestedRole: UserRole; introMessage: string }) {
+    setRequestingTeamId(input.teamId);
+    await requestTeamJoin(input);
+    setRequestingTeamId(null);
+    setJoinDialogTeam(null);
+  }
+
+  async function handleCancelJoinRequest(requestId: string) {
+    setProcessingRequestId(requestId);
+    await cancelTeamJoinRequest(requestId);
+    setProcessingRequestId(null);
+  }
+
+  async function handleReviewJoinRequest(requestId: string, status: 'accepted' | 'rejected') {
+    setProcessingRequestId(requestId);
+    await reviewTeamJoinRequest(requestId, status);
+    setProcessingRequestId(null);
+  }
 
   const defaultValues = useMemo<SubmissionFormInput>(
     () => ({
@@ -600,6 +632,11 @@ export function HackathonDetail() {
                     const progress = getTeamProgressSnapshot(team, teamSubmission, hasPublicSubmission);
                     const activityFeed = getTeamActivityFeed(team, teamSubmission, hackathon).slice(0, 2);
                     const checkpoints = getTeamCheckpointItems(team, teamSubmission).slice(0, 2);
+                    const isMyTeam =
+                      Boolean(currentUser) &&
+                      (team.ownerId === currentUser?.id || team.members.some((member) => member.profileId === currentUser?.id));
+                    const myJoinRequest = getMyJoinRequestForTeam(joinRequests, team.id, currentUser?.id ?? null);
+                    const pendingRequests = getPendingJoinRequestsForTeam(joinRequests, team.id);
 
                     return (
                       <div key={team.id} className="rounded-2xl border border-[#EEF3F8] bg-[#F6F9FC] p-5">
@@ -732,6 +769,69 @@ export function HackathonDetail() {
                                 </div>
                               ))}
                             </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-col gap-3 rounded-2xl bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="text-xs font-black uppercase tracking-wider text-[#5F6E82]">참여 상태</div>
+                            <div className="mt-1 text-sm font-semibold text-[#0F1E32]">
+                              {isMyTeam
+                                ? '이미 참여 중인 팀입니다.'
+                                : myJoinRequest
+                                  ? getTeamJoinRequestStatusLabel(myJoinRequest.status)
+                                  : team.isRecruiting
+                                    ? '현재 모집 중이며 팀장 검토 후 합류가 결정됩니다.'
+                                    : '현재는 모집이 마감된 팀입니다.'}
+                            </div>
+                            {team.isRecruiting && !isMyTeam && (
+                              <div className="mt-1 text-xs text-[#5F6E82]">
+                                현재 {team.desiredRoles.length > 0 ? `${team.desiredRoles.length}개 역할` : '추가 역할'} 모집 중
+                                {pendingRequests.length > 0 ? ` · 대기 중 요청 ${pendingRequests.length}건` : ''}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            {isMyTeam ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="rounded-2xl"
+                                onClick={() => team.ownerId === currentUser?.id ? setManageRequestTeam(team) : undefined}
+                                disabled={team.ownerId !== currentUser?.id}
+                              >
+                                {team.ownerId === currentUser?.id ? '요청 관리' : '참여 중'}
+                              </Button>
+                            ) : myJoinRequest?.status === 'pending' ? (
+                              <>
+                                <span className="rounded-full bg-[#EBF5FF] px-2.5 py-1 text-[11px] font-bold text-[#0064FF]">
+                                  요청 완료
+                                </span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-2xl"
+                                  onClick={() => void handleCancelJoinRequest(myJoinRequest.id)}
+                                  disabled={processingRequestId === myJoinRequest.id}
+                                >
+                                  요청 취소
+                                </Button>
+                              </>
+                            ) : myJoinRequest?.status === 'accepted' ? (
+                              <span className="rounded-full bg-[#E8FFF3] px-2.5 py-1 text-[11px] font-bold text-[#0D8F57]">
+                                합류 승인
+                              </span>
+                            ) : (
+                              <Button
+                                size="sm"
+                                className="rounded-2xl"
+                                onClick={() => currentUser ? setJoinDialogTeam(team) : openAuthDialog()}
+                                disabled={!team.isRecruiting || requestingTeamId === team.id}
+                              >
+                                팀 참여 요청
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1132,6 +1232,24 @@ export function HackathonDetail() {
           </section>
         </aside>
       </div>
+
+      <TeamJoinRequestDialog
+        open={Boolean(joinDialogTeam)}
+        team={joinDialogTeam}
+        preferredRole={currentUser?.primaryRole ?? null}
+        submitting={Boolean(joinDialogTeam && requestingTeamId === joinDialogTeam.id)}
+        onClose={() => setJoinDialogTeam(null)}
+        onSubmit={handleJoinSubmit}
+      />
+
+      <TeamJoinRequestsManagerDialog
+        open={Boolean(manageRequestTeam)}
+        team={manageRequestTeam}
+        requests={manageRequestTeam ? joinRequests.filter((request) => request.teamId === manageRequestTeam.id) : []}
+        processingId={processingRequestId}
+        onClose={() => setManageRequestTeam(null)}
+        onReview={handleReviewJoinRequest}
+      />
 
       {confirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#05060B]/70 p-4 backdrop-blur-sm">

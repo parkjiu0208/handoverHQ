@@ -4,6 +4,7 @@ export const STORAGE_KEYS = {
   profile: 'handoverhq.profile',
   pendingAuthProfile: 'handoverhq.pending-auth-profile',
   teams: 'handoverhq.teams',
+  teamJoinRequests: 'handoverhq.team-join-requests',
   submissions: 'handoverhq.submissions',
   leaderboards: 'handoverhq.leaderboards',
   submissionDraftPrefix: 'handoverhq.submit-draft.',

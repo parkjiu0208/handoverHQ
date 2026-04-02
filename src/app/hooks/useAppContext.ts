@@ -9,6 +9,8 @@ import type {
   SubmissionFormInput,
   Team,
   TeamFormInput,
+  TeamJoinRequest,
+  TeamJoinRequestFormInput,
   UserRole,
 } from '../types/domain';
 
@@ -32,6 +34,7 @@ export interface AppContextValue {
   authDialogOpen: boolean;
   hackathons: Hackathon[];
   teams: Team[];
+  joinRequests: TeamJoinRequest[];
   submissions: Submission[];
   leaderboardEntries: LeaderboardEntry[];
   rankings: RankingSummary[];
@@ -43,6 +46,9 @@ export interface AppContextValue {
   signOut: () => Promise<void>;
   refreshData: () => Promise<void>;
   saveTeam: (input: TeamFormInput) => Promise<void>;
+  requestTeamJoin: (input: TeamJoinRequestFormInput) => Promise<void>;
+  cancelTeamJoinRequest: (requestId: string) => Promise<void>;
+  reviewTeamJoinRequest: (requestId: string, status: 'accepted' | 'rejected') => Promise<void>;
   saveSubmissionDraft: (input: SubmissionFormInput) => Promise<void>;
   finalizeSubmission: (input: SubmissionFormInput) => Promise<void>;
   uploadSubmissionPdf: (file: File, payload: { hackathonId: string; teamId: string }) => Promise<{ path: string; url: string }>;

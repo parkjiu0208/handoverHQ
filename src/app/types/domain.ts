@@ -13,6 +13,7 @@ export type UserRole = (typeof roleValues)[number];
 export type HackathonStatus = 'upcoming' | 'active' | 'ended';
 export type TimelineStatus = 'completed' | 'upcoming';
 export type SubmissionStatus = 'draft' | 'submitted';
+export type TeamJoinRequestStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
 export type RankingPeriod = '7d' | '30d' | 'all';
 
 export interface NextAction {
@@ -116,6 +117,22 @@ export interface Team {
   members: TeamMember[];
 }
 
+export interface TeamJoinRequest {
+  id: string;
+  teamId: string;
+  applicantId: string;
+  applicantName: string;
+  applicantEmail: string;
+  requestedRole: UserRole;
+  introMessage: string;
+  status: TeamJoinRequestStatus;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  decisionNote: string;
+}
+
 export interface SubmissionVersion {
   versionNumber: number;
   proposalSummary: string;
@@ -171,6 +188,12 @@ export interface TeamFormInput {
   contactUrl: string;
 }
 
+export interface TeamJoinRequestFormInput {
+  teamId: string;
+  requestedRole: UserRole;
+  introMessage: string;
+}
+
 export interface SubmissionFormInput {
   hackathonId: string;
   teamId: string;
@@ -186,6 +209,7 @@ export interface SubmissionFormInput {
 export interface BootstrapData {
   hackathons: Hackathon[];
   teams: Team[];
+  joinRequests: TeamJoinRequest[];
   submissions: Submission[];
   leaderboardEntries: LeaderboardEntry[];
 }

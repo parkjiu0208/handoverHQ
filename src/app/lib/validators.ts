@@ -40,3 +40,9 @@ export const submissionFormSchema = z.object({
   message: '솔루션 PDF는 업로드하거나 유효한 공개 URL을 입력해주세요.',
   path: ['solutionPdfUrl'],
 });
+
+export const teamJoinRequestSchema = z.object({
+  teamId: z.string().min(1, '지원할 팀을 다시 선택해주세요.'),
+  requestedRole: z.enum(roleValues, '맡고 싶은 역할을 선택해주세요.'),
+  introMessage: z.string().trim().min(12, '한 줄 소개는 12자 이상 입력해주세요.').max(240, '한 줄 소개는 240자 이하로 입력해주세요.'),
+});

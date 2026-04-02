@@ -8,6 +8,7 @@ import {
   SEED_LEADERBOARD,
   SEED_SUBMISSIONS,
   SEED_TEAMS,
+  SEED_TEAM_JOIN_REQUESTS,
   SEED_USERS,
 } from '../src/app/lib/mock-data.ts';
 
@@ -102,6 +103,20 @@ function collectUserSeeds() {
         isAdmin: false,
       });
     }
+  }
+
+  for (const request of SEED_TEAM_JOIN_REQUESTS) {
+    if (userSeedMap.has(request.applicantId)) {
+      continue;
+    }
+
+    userSeedMap.set(request.applicantId, {
+      legacyId: request.applicantId,
+      email: request.applicantEmail || seedEmailFromLegacyId(request.applicantId),
+      displayName: request.applicantName,
+      primaryRole: request.requestedRole,
+      isAdmin: false,
+    });
   }
 
   return [...userSeedMap.values()];
@@ -256,6 +271,32 @@ async function main() {
     throw memberError;
   }
 
+  const joinRequestRows = SEED_TEAM_JOIN_REQUESTS.map((request) => ({
+    id: stableUuid(`team-join-request:${request.id}`),
+    team_id: teamIdMap.get(request.teamId),
+    applicant_id: userIdMap.get(request.applicantId),
+    applicant_name: request.applicantName,
+    applicant_email: request.applicantEmail,
+    requested_role: request.requestedRole,
+    intro_message: request.introMessage,
+    status: request.status,
+    created_at: request.createdAt,
+    updated_at: request.updatedAt,
+    reviewed_at: request.reviewedAt,
+    reviewed_by: request.reviewedBy ? userIdMap.get(request.reviewedBy) : null,
+    decision_note: request.decisionNote,
+  }));
+
+  if (joinRequestRows.length > 0) {
+    const { error: joinRequestError } = await supabase.from('team_join_requests').upsert(joinRequestRows, {
+      onConflict: 'id',
+    });
+
+    if (joinRequestError) {
+      throw joinRequestError;
+    }
+  }
+
   const submissionRows = SEED_SUBMISSIONS.map((submission) => ({
     id: stableUuid(`submission:${submission.id}`),
     hackathon_id: hackathonIdMap.get(submission.hackathonId),
@@ -329,6 +370,7 @@ async function main() {
       `hackathons=${hackathonRows.length}`,
       `teams=${teamRows.length}`,
       `team_members=${memberRows.length}`,
+      `team_join_requests=${joinRequestRows.length}`,
       `submissions=${submissionRows.length}`,
       `submission_versions=${versionRows.length}`,
       `leaderboard_entries=${leaderboardRows.length}`,

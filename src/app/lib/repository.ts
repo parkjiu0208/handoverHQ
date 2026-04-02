@@ -4,8 +4,14 @@ import { getUserDisplayName, normalizeUserRole } from './auth';
 import { appEnv } from './env';
 import { createSignedSubmissionAssetUrls } from './storage';
 import { getSupabaseBrowserClient } from './supabase';
-import { SEED_HACKATHONS, SEED_LEADERBOARD, SEED_SUBMISSIONS, SEED_TEAMS } from './mock-data';
-import { STORAGE_KEYS } from './constants';
+import {
+  SEED_HACKATHONS,
+  SEED_LEADERBOARD,
+  SEED_SUBMISSIONS,
+  SEED_TEAMS,
+  SEED_TEAM_JOIN_REQUESTS,
+} from './mock-data';
+import { ROLE_LABEL_MAP, STORAGE_KEYS } from './constants';
 import type {
   AppUser,
   BootstrapData,
@@ -16,6 +22,9 @@ import type {
   SubmissionVersion,
   Team,
   TeamFormInput,
+  TeamJoinRequest,
+  TeamJoinRequestFormInput,
+  TeamJoinRequestStatus,
 } from '../types/domain';
 
 function clone<T>(value: T): T {
@@ -77,6 +86,15 @@ function ensureNoSupabaseError(error: { message: string } | null, context: strin
   throw new Error(`${context}: ${error.message}`);
 }
 
+function isMissingRelationError(error: { code?: string; message: string } | null) {
+  return Boolean(
+    error &&
+      (error.code === 'PGRST205' ||
+        error.code === '42P01' ||
+        error.message.includes("Could not find the table 'public.team_join_requests'"))
+  );
+}
+
 function normalizeRanks(entries: LeaderboardEntry[]) {
   return [...entries]
     .sort((left, right) => right.totalScore - left.totalScore)
@@ -90,6 +108,7 @@ function getFallbackData(): BootstrapData {
   return {
     hackathons: clone(SEED_HACKATHONS),
     teams: readStoredCollection(STORAGE_KEYS.teams, SEED_TEAMS),
+    joinRequests: readStoredCollection(STORAGE_KEYS.teamJoinRequests, SEED_TEAM_JOIN_REQUESTS),
     submissions: readStoredCollection(STORAGE_KEYS.submissions, SEED_SUBMISSIONS),
     leaderboardEntries: readStoredCollection(STORAGE_KEYS.leaderboards, SEED_LEADERBOARD),
   };
@@ -182,6 +201,24 @@ function mapSubmissionRecord(record: Record<string, any>, versions: Record<strin
   };
 }
 
+function mapTeamJoinRequestRecord(record: Record<string, any>): TeamJoinRequest {
+  return {
+    id: record.id,
+    teamId: record.team_id,
+    applicantId: record.applicant_id,
+    applicantName: record.applicant_name,
+    applicantEmail: record.applicant_email,
+    requestedRole: record.requested_role,
+    introMessage: record.intro_message,
+    status: record.status,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+    reviewedAt: record.reviewed_at,
+    reviewedBy: record.reviewed_by,
+    decisionNote: record.decision_note ?? '',
+  };
+}
+
 function mapLeaderboardRecord(record: Record<string, any>): LeaderboardEntry {
   return {
     id: record.id,
@@ -212,6 +249,7 @@ export async function loadBootstrapData(currentUserId?: string | null): Promise<
     { data: hackathons, error: hackathonsError },
     { data: teams, error: teamsError },
     { data: members, error: membersError },
+    joinRequestsResult,
     { data: submissions, error: submissionsError },
     { data: versions, error: versionsError },
     { data: leaderboardEntries, error: leaderboardError },
@@ -219,6 +257,9 @@ export async function loadBootstrapData(currentUserId?: string | null): Promise<
     supabase.from('hackathons').select('*').eq('published', true).order('submission_deadline', { ascending: true }),
     supabase.from('teams').select('*').order('updated_at', { ascending: false }),
     supabase.from('team_members').select('*'),
+    shouldLoadPrivateData
+      ? supabase.from('team_join_requests').select('*').order('created_at', { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
     shouldLoadPrivateData
       ? supabase.from('submissions').select('*').order('updated_at', { ascending: false })
       : Promise.resolve({ data: [], error: null }),
@@ -231,6 +272,9 @@ export async function loadBootstrapData(currentUserId?: string | null): Promise<
   ensureNoSupabaseError(hackathonsError, '해커톤 목록을 불러오지 못했습니다');
   ensureNoSupabaseError(teamsError, '팀 목록을 불러오지 못했습니다');
   ensureNoSupabaseError(membersError, '팀 멤버 정보를 불러오지 못했습니다');
+  if (!isMissingRelationError(joinRequestsResult.error)) {
+    ensureNoSupabaseError(joinRequestsResult.error, '팀 참여 요청을 불러오지 못했습니다');
+  }
   ensureNoSupabaseError(submissionsError, '제출 정보를 불러오지 못했습니다');
   ensureNoSupabaseError(versionsError, '제출 버전 이력을 불러오지 못했습니다');
   ensureNoSupabaseError(leaderboardError, '리더보드를 불러오지 못했습니다');
@@ -252,6 +296,9 @@ export async function loadBootstrapData(currentUserId?: string | null): Promise<
   return {
     hackathons: (hackathons ?? []).map((record) => mapHackathonRecord(record)),
     teams: (teams ?? []).map((record) => mapTeamRecord(record, members ?? [])),
+    joinRequests: isMissingRelationError(joinRequestsResult.error)
+      ? []
+      : (joinRequestsResult.data ?? []).map((record) => mapTeamJoinRequestRecord(record)),
     submissions: hydratedSubmissions.map((record) => mapSubmissionRecord(record, hydratedVersions)),
     leaderboardEntries: (leaderboardEntries ?? []).map((record) => mapLeaderboardRecord(record)),
   };
@@ -349,6 +396,162 @@ export async function saveTeam(input: TeamFormInput, currentUser: AppUser) {
   ensureNoSupabaseError(memberError, '팀장 정보를 저장하지 못했습니다');
 
   return teamPayload;
+}
+
+function writeFallbackJoinRequests(joinRequests: TeamJoinRequest[]) {
+  writeStoredCollection(STORAGE_KEYS.teamJoinRequests, joinRequests);
+}
+
+function updateFallbackTeamOnAcceptance(teamId: string, request: TeamJoinRequest) {
+  const teams = readStoredCollection(STORAGE_KEYS.teams, SEED_TEAMS);
+  const index = teams.findIndex((team) => team.id === teamId);
+
+  if (index < 0) {
+    return;
+  }
+
+  const targetTeam = teams[index];
+  const nextSize = Math.min(targetTeam.currentSize + 1, targetTeam.maxSize);
+  const nextTeam: Team = {
+    ...targetTeam,
+    currentSize: nextSize,
+    isRecruiting: targetTeam.isRecruiting && nextSize < targetTeam.maxSize,
+    updatedAt: new Date().toISOString(),
+    members: targetTeam.members.some((member) => member.profileId === request.applicantId)
+      ? targetTeam.members
+      : [
+          ...targetTeam.members,
+          {
+            profileId: request.applicantId,
+            displayName: request.applicantName,
+            roleLabel: ROLE_LABEL_MAP[request.requestedRole],
+            isOwner: false,
+          },
+        ],
+  };
+
+  teams[index] = nextTeam;
+  writeStoredCollection(STORAGE_KEYS.teams, teams);
+}
+
+export async function createTeamJoinRequest(input: TeamJoinRequestFormInput, currentUser: AppUser) {
+  const requestPayload: TeamJoinRequest = {
+    id: createId('join-request'),
+    teamId: input.teamId,
+    applicantId: currentUser.id,
+    applicantName: currentUser.displayName,
+    applicantEmail: currentUser.email,
+    requestedRole: input.requestedRole,
+    introMessage: input.introMessage,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    reviewedAt: null,
+    reviewedBy: null,
+    decisionNote: '',
+  };
+
+  if (!appEnv.hasSupabase) {
+    const joinRequests = readStoredCollection(STORAGE_KEYS.teamJoinRequests, SEED_TEAM_JOIN_REQUESTS);
+    writeFallbackJoinRequests([requestPayload, ...joinRequests]);
+    return requestPayload;
+  }
+
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    const joinRequests = readStoredCollection(STORAGE_KEYS.teamJoinRequests, SEED_TEAM_JOIN_REQUESTS);
+    writeFallbackJoinRequests([requestPayload, ...joinRequests]);
+    return requestPayload;
+  }
+
+  const { error } = await supabase.from('team_join_requests').insert({
+    id: requestPayload.id,
+    team_id: requestPayload.teamId,
+    applicant_id: requestPayload.applicantId,
+    applicant_name: requestPayload.applicantName,
+    applicant_email: requestPayload.applicantEmail,
+    requested_role: requestPayload.requestedRole,
+    intro_message: requestPayload.introMessage,
+    status: requestPayload.status,
+    created_at: requestPayload.createdAt,
+    updated_at: requestPayload.updatedAt,
+  });
+  ensureNoSupabaseError(error, '팀 참여 요청을 저장하지 못했습니다');
+
+  return requestPayload;
+}
+
+export async function updateTeamJoinRequestStatus(
+  request: TeamJoinRequest,
+  status: TeamJoinRequestStatus,
+  currentUser: AppUser,
+  team?: Team | null,
+  decisionNote = ''
+) {
+  const nextUpdatedAt = new Date().toISOString();
+  const nextRequest: TeamJoinRequest = {
+    ...request,
+    status,
+    updatedAt: nextUpdatedAt,
+    reviewedAt: status === 'pending' || status === 'cancelled' ? null : nextUpdatedAt,
+    reviewedBy: status === 'pending' || status === 'cancelled' ? null : currentUser.id,
+    decisionNote,
+  };
+
+  if (!appEnv.hasSupabase) {
+    const joinRequests = readStoredCollection(STORAGE_KEYS.teamJoinRequests, SEED_TEAM_JOIN_REQUESTS);
+    const nextJoinRequests = joinRequests.map((item) => (item.id === request.id ? nextRequest : item));
+    writeFallbackJoinRequests(nextJoinRequests);
+
+    if (status === 'accepted') {
+      updateFallbackTeamOnAcceptance(request.teamId, nextRequest);
+    }
+
+    return nextRequest;
+  }
+
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    return nextRequest;
+  }
+
+  const { error: requestError } = await supabase
+    .from('team_join_requests')
+    .update({
+      status: nextRequest.status,
+      updated_at: nextRequest.updatedAt,
+      reviewed_at: nextRequest.reviewedAt,
+      reviewed_by: nextRequest.reviewedBy,
+      decision_note: nextRequest.decisionNote,
+    })
+    .eq('id', request.id);
+  ensureNoSupabaseError(requestError, '팀 참여 요청 상태를 저장하지 못했습니다');
+
+  if (status !== 'accepted' || !team) {
+    return nextRequest;
+  }
+
+  const { error: memberError } = await supabase.from('team_members').upsert({
+    team_id: request.teamId,
+    profile_id: request.applicantId,
+    display_name: request.applicantName,
+    role_label: ROLE_LABEL_MAP[request.requestedRole],
+    is_owner: false,
+  });
+  ensureNoSupabaseError(memberError, '승인된 팀원을 추가하지 못했습니다');
+
+  const nextSize = Math.min(team.currentSize + 1, team.maxSize);
+  const { error: teamError } = await supabase
+    .from('teams')
+    .update({
+      current_size: nextSize,
+      is_recruiting: team.isRecruiting && nextSize < team.maxSize,
+      updated_at: nextUpdatedAt,
+    })
+    .eq('id', team.id);
+  ensureNoSupabaseError(teamError, '팀 인원 상태를 갱신하지 못했습니다');
+
+  return nextRequest;
 }
 
 function buildVersion(input: SubmissionFormInput, currentVersions: SubmissionVersion[]) {
