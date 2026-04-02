@@ -2,6 +2,7 @@ import { Outlet } from 'react-router';
 import { Header } from './Header';
 import { Footer } from './Footer';
 import { AuthDialog } from './AuthDialog';
+import { ScrollToTop } from './ScrollToTop';
 import { useAppContext } from '../hooks/useAppContext';
 
 export function Layout() {
@@ -9,6 +10,7 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      <ScrollToTop />
       <Header />
       {!isSupabaseReady && (
         <div className="border-b border-[#D6DEE8] bg-[#F6F9FC] px-6 py-3 text-sm text-[#5F6E82]">

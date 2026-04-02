@@ -154,9 +154,11 @@ export function HackathonDetail() {
 
   async function handleJoinSubmit(input: { teamId: string; requestedRole: UserRole; introMessage: string }) {
     setRequestingTeamId(input.teamId);
-    await requestTeamJoin(input);
+    const success = await requestTeamJoin(input);
     setRequestingTeamId(null);
-    setJoinDialogTeam(null);
+    if (success) {
+      setJoinDialogTeam(null);
+    }
   }
 
   async function handleCancelJoinRequest(requestId: string) {

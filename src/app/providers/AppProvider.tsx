@@ -14,6 +14,7 @@ import {
   writePendingAuthProfile,
 } from '../lib/auth';
 import { appEnv } from '../lib/env';
+import { ROLE_LABEL_MAP } from '../lib/constants';
 import {
   createTeamJoinRequest,
   loadBootstrapData,
@@ -39,6 +40,7 @@ import type {
   SubmissionFormInput,
   Team,
   TeamFormInput,
+  TeamJoinRequest,
   UserRole,
 } from '../types/domain';
 
@@ -98,6 +100,36 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [data, setData] = useState<BootstrapData>(emptyData);
   const rankings = buildRankings(data.leaderboardEntries);
+
+  function replaceJoinRequestInState(nextRequest: TeamJoinRequest) {
+    startTransition(() => {
+      setData((current) => ({
+        ...current,
+        joinRequests: [nextRequest, ...current.joinRequests.filter((request) => request.id !== nextRequest.id)],
+      }));
+    });
+  }
+
+  function applyAcceptedJoinToTeam(team: Team, request: TeamJoinRequest) {
+    const nextUpdatedAt = new Date().toISOString();
+    return {
+      ...team,
+      currentSize: Math.min(team.currentSize + 1, team.maxSize),
+      isRecruiting: team.isRecruiting && team.currentSize + 1 < team.maxSize,
+      updatedAt: nextUpdatedAt,
+      members: team.members.some((member) => member.profileId === request.applicantId)
+        ? team.members
+        : [
+            ...team.members,
+            {
+              profileId: request.applicantId,
+              displayName: request.applicantName,
+              roleLabel: ROLE_LABEL_MAP[request.requestedRole],
+              isOwner: false,
+            },
+          ],
+    };
+  }
 
   async function refreshData(userId = currentUser?.id ?? null) {
     setDataLoading(true);
@@ -403,26 +435,26 @@ export function AppProvider({ children }: PropsWithChildren) {
       const parsed = teamJoinRequestSchema.safeParse(input);
       if (!parsed.success) {
         toast.error(parsed.error.issues[0]?.message ?? '지원 정보를 다시 확인해주세요.');
-        return;
+        return false;
       }
 
       const nextUser = await ensureAuthenticatedUser();
       const team = data.teams.find((candidate) => candidate.id === parsed.data.teamId);
       if (!team) {
         toast.error('지원할 팀을 찾지 못했습니다.');
-        return;
+        return false;
       }
 
       if (!team.isRecruiting) {
         toast.error('현재는 모집이 마감된 팀입니다.');
-        return;
+        return false;
       }
 
       const isMember =
         team.ownerId === nextUser.id || team.members.some((member) => member.profileId === nextUser.id);
       if (isMember) {
         toast.error('이미 이 팀에 속해 있습니다.');
-        return;
+        return false;
       }
 
       const existingTeamInHackathon = data.teams.find(
@@ -432,7 +464,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       );
       if (existingTeamInHackathon) {
         toast.error('같은 해커톤에는 하나의 팀에만 참여할 수 있습니다.');
-        return;
+        return false;
       }
 
       const pendingRequest = data.joinRequests.find(
@@ -443,17 +475,21 @@ export function AppProvider({ children }: PropsWithChildren) {
       );
       if (pendingRequest) {
         toast.message('이미 검토 중인 참여 요청이 있습니다.');
-        return;
+        return false;
       }
 
-      await createTeamJoinRequest(parsed.data, nextUser);
-      await refreshData();
-      toast.success('팀 참여 요청을 보냈습니다. 팀장 검토 후 결과가 반영됩니다.');
+      const createdRequest = await createTeamJoinRequest(parsed.data, nextUser);
+      replaceJoinRequestInState(createdRequest);
+      toast.success('팀 참여 요청을 보냈습니다.', {
+        description: '팀장이 확인하면 상태가 바로 갱신됩니다.',
+      });
+      return true;
     } catch (error) {
       if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
-        return;
+        return false;
       }
       toast.error(error instanceof Error ? error.message : '팀 참여 요청을 보내지 못했습니다.');
+      return false;
     }
   }
 
@@ -466,9 +502,11 @@ export function AppProvider({ children }: PropsWithChildren) {
         return;
       }
 
-      await updateTeamJoinRequestStatus(request, 'cancelled', nextUser);
-      await refreshData();
-      toast.success('팀 참여 요청을 취소했습니다.');
+      const updatedRequest = await updateTeamJoinRequestStatus(request, 'cancelled', nextUser);
+      replaceJoinRequestInState(updatedRequest);
+      toast.success('팀 참여 요청을 취소했습니다.', {
+        description: '원하면 다른 팀에 다시 요청할 수 있습니다.',
+      });
     } catch (error) {
       if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
         return;
@@ -502,9 +540,27 @@ export function AppProvider({ children }: PropsWithChildren) {
         return;
       }
 
-      await updateTeamJoinRequestStatus(request, status, nextUser, team);
-      await refreshData();
-      toast.success(status === 'accepted' ? '팀 참여 요청을 승인했습니다.' : '팀 참여 요청을 거절했습니다.');
+      const updatedRequest = await updateTeamJoinRequestStatus(request, status, nextUser, team);
+
+      startTransition(() => {
+        setData((current) => ({
+          ...current,
+          joinRequests: [updatedRequest, ...current.joinRequests.filter((candidate) => candidate.id !== updatedRequest.id)],
+          teams:
+            status === 'accepted'
+              ? current.teams.map((candidate) =>
+                  candidate.id === team.id ? applyAcceptedJoinToTeam(candidate, updatedRequest) : candidate
+                )
+              : current.teams,
+        }));
+      });
+
+      toast.success(status === 'accepted' ? '팀 참여 요청을 승인했습니다.' : '팀 참여 요청을 거절했습니다.', {
+        description:
+          status === 'accepted'
+            ? '팀 인원과 참여 상태를 바로 반영했습니다.'
+            : '지원자에게는 거절 상태가 바로 표시됩니다.',
+      });
     } catch (error) {
       if (error instanceof Error && error.message === 'AUTH_REQUIRED') {
         return;

@@ -46,7 +46,7 @@ export interface AppContextValue {
   signOut: () => Promise<void>;
   refreshData: () => Promise<void>;
   saveTeam: (input: TeamFormInput) => Promise<void>;
-  requestTeamJoin: (input: TeamJoinRequestFormInput) => Promise<void>;
+  requestTeamJoin: (input: TeamJoinRequestFormInput) => Promise<boolean>;
   cancelTeamJoinRequest: (requestId: string) => Promise<void>;
   reviewTeamJoinRequest: (requestId: string, status: 'accepted' | 'rejected') => Promise<void>;
   saveSubmissionDraft: (input: SubmissionFormInput) => Promise<void>;
