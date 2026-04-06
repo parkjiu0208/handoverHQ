@@ -288,6 +288,81 @@ export const SEED_TEAMS: Team[] = [
       { profileId: 'member-data-4', displayName: '윤디자인', roleLabel: '디자인', isOwner: false },
     ],
   },
+  {
+    id: 'team-prompt-sprint',
+    hackathonId: 'hackathon-spring-ai',
+    ownerId: 'member-plan-2',
+    name: 'Prompt Sprint',
+    description:
+      'AI 해커톤 제출용 운영 대시보드를 빠르게 고도화 중입니다. 프론트엔드와 디자이너를 모셔서 데모 완성도를 끌어올리고 싶어요.',
+    currentSize: 2,
+    maxSize: 4,
+    isRecruiting: true,
+    desiredRoles: ['frontend', 'designer'],
+    techTags: ['React', 'Framer Motion', 'Prompt Flow'],
+    contactUrl: '',
+    updatedAt: '2026-04-06T10:05:00+09:00',
+    members: [
+      { profileId: 'member-plan-2', displayName: '한기획', roleLabel: '팀장 / 서비스 기획', isOwner: true },
+      { profileId: 'member-ai-2', displayName: '서모델', roleLabel: 'AI 엔지니어', isOwner: false },
+    ],
+  },
+  {
+    id: 'team-demo-dock',
+    hackathonId: 'hackathon-spring-ai',
+    ownerId: 'member-backend-2',
+    name: 'Demo Dock',
+    description:
+      '배포 링크와 제출 흐름은 거의 정리됐고, 마지막 스퍼트로 백엔드 자동화와 데이터 시각화 보강이 필요합니다.',
+    currentSize: 2,
+    maxSize: 5,
+    isRecruiting: true,
+    desiredRoles: ['backend', 'data-ai'],
+    techTags: ['Supabase', 'Analytics', 'Vercel'],
+    contactUrl: '',
+    updatedAt: '2026-04-06T09:20:00+09:00',
+    members: [
+      { profileId: 'member-backend-2', displayName: '임백엔드', roleLabel: '팀장 / 백엔드', isOwner: true },
+      { profileId: 'member-front-2', displayName: '오프론트', roleLabel: '프론트엔드', isOwner: false },
+    ],
+  },
+  {
+    id: 'team-chain-canvas',
+    hackathonId: 'hackathon-web3',
+    ownerId: 'member-chain-2',
+    name: 'Chain Canvas',
+    description:
+      '온체인 활동을 시각적으로 보여주는 Web3 데모를 만들고 있습니다. 프론트와 기획 쪽 합류를 기다리고 있어요.',
+    currentSize: 2,
+    maxSize: 4,
+    isRecruiting: true,
+    desiredRoles: ['frontend', 'planner'],
+    techTags: ['Web3', 'Dashboard', 'Wallet'],
+    contactUrl: '',
+    updatedAt: '2026-04-06T08:40:00+09:00',
+    members: [
+      { profileId: 'member-chain-2', displayName: '문체인', roleLabel: '팀장 / 블록체인 엔지니어', isOwner: true },
+      { profileId: 'member-design-2', displayName: '배디자인', roleLabel: '프로덕트 디자이너', isOwner: false },
+    ],
+  },
+  {
+    id: 'team-eco-route',
+    hackathonId: 'hackathon-sustainable',
+    ownerId: 'member-eco-1',
+    name: 'Eco Route',
+    description:
+      '친환경 이동 경로 추천 MVP를 준비 중입니다. 지도 인터랙션과 데이터 정리에 강한 팀원을 찾습니다.',
+    currentSize: 1,
+    maxSize: 4,
+    isRecruiting: true,
+    desiredRoles: ['frontend', 'data-ai', 'planner'],
+    techTags: ['Maps', 'Sustainability', 'Data'],
+    contactUrl: '',
+    updatedAt: '2026-04-06T07:55:00+09:00',
+    members: [
+      { profileId: 'member-eco-1', displayName: '조에코', roleLabel: '팀장 / 서비스 기획', isOwner: true },
+    ],
+  },
 ];
 
 export const SEED_TEAM_JOIN_REQUESTS: TeamJoinRequest[] = [

@@ -62,6 +62,15 @@ function stableUuid(seed) {
   ].join('-');
 }
 
+function isMissingJoinRequestTableError(error) {
+  return Boolean(
+    error &&
+      (error.code === 'PGRST205' ||
+        error.code === '42P01' ||
+        String(error.message || '').includes("Could not find the table 'public.team_join_requests'"))
+  );
+}
+
 function seedEmailFromLegacyId(legacyId) {
   return `${legacyId.replace(/[^a-z0-9-_]+/gi, '-').toLowerCase()}@seed.handoverhq.dev`;
 }
@@ -287,12 +296,17 @@ async function main() {
     decision_note: request.decisionNote,
   }));
 
+  let appliedJoinRequestCount = joinRequestRows.length;
+
   if (joinRequestRows.length > 0) {
     const { error: joinRequestError } = await supabase.from('team_join_requests').upsert(joinRequestRows, {
       onConflict: 'id',
     });
 
-    if (joinRequestError) {
+    if (isMissingJoinRequestTableError(joinRequestError)) {
+      appliedJoinRequestCount = 0;
+      console.warn('[warn] team_join_requests 테이블이 없어 요청 시드는 건너뜁니다.');
+    } else if (joinRequestError) {
       throw joinRequestError;
     }
   }
@@ -370,7 +384,7 @@ async function main() {
       `hackathons=${hackathonRows.length}`,
       `teams=${teamRows.length}`,
       `team_members=${memberRows.length}`,
-      `team_join_requests=${joinRequestRows.length}`,
+      `team_join_requests=${appliedJoinRequestCount}`,
       `submissions=${submissionRows.length}`,
       `submission_versions=${versionRows.length}`,
       `leaderboard_entries=${leaderboardRows.length}`,
