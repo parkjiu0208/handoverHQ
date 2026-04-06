@@ -8,8 +8,8 @@ export function Footer() {
         <div className="grid grid-cols-1 gap-10 md:grid-cols-4">
           <div className="col-span-1">
             <div className="mb-6 flex items-center gap-3">
-              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[#0064FF]">
-                <span className="text-xs font-bold text-white">H</span>
+              <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg border border-[#D6DEE8] bg-white shadow-sm">
+                <img src="/handoverhq-mark.png" alt="Handover HQ 로고" className="h-full w-full object-cover" />
               </div>
               <span className="font-bold tracking-tight text-[#0F1E32]">Handover HQ</span>
             </div>

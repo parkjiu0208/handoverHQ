@@ -49,8 +49,8 @@ export function Header() {
       <div className="mx-auto max-w-6xl px-6 lg:px-10">
         <div className="flex h-16 items-center justify-between">
           <Link to="/" className="group flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#0064FF] text-lg font-bold text-white shadow-sm transition-transform group-hover:scale-105">
-              H
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-[#D6DEE8] bg-white shadow-sm transition-transform group-hover:scale-105">
+              <img src="/handoverhq-mark.png" alt="Handover HQ 로고" className="h-full w-full object-cover" />
             </div>
             <span className="text-xl font-bold tracking-tight text-[#0F1E32]">Handover HQ</span>
           </Link>

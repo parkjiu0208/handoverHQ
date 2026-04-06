@@ -71,7 +71,7 @@ export function Rankings() {
 
   return (
     <div className="min-h-screen w-full text-[#0F1E32]">
-      <div className="sticky top-0 z-10 bg-white shadow-sm">
+      <div className="sticky top-0 z-30 bg-white shadow-sm">
         <div className="mx-auto max-w-6xl px-6 py-10 lg:px-10">
           <div className="mb-6">
             <h1 className="mb-2 text-4xl font-bold tracking-tight">팀 랭킹</h1>
@@ -108,14 +108,14 @@ export function Rankings() {
             />
           ) : (
             <>
-              <div className="grid grid-cols-3 items-end gap-3 md:gap-5">
+              <div className="grid grid-cols-3 items-end gap-3 pt-4 md:gap-5 md:pt-6">
                 {podiumEntries.map((team) => (
                   <div
                     key={team.teamId}
                     className={`relative pt-5 ${
                       team.rank === 1
-                        ? 'z-20 -translate-y-4'
-                        : 'z-10 md:translate-y-5'
+                        ? 'z-10 -translate-y-4'
+                        : 'z-0 md:translate-y-5'
                     }`}
                   >
                     {team.rank === 1 ? (
