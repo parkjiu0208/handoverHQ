@@ -112,32 +112,39 @@ export function Rankings() {
                 {podiumEntries.map((team) => (
                   <div
                     key={team.teamId}
-                    className={`relative overflow-hidden rounded-[28px] bg-white text-center shadow-lg ${
+                    className={`relative pt-5 ${
                       team.rank === 1
-                        ? '-translate-y-4 border border-[#BFD7FF] px-4 pb-5 pt-7 ring-2 ring-[#0064FF] shadow-[0_20px_44px_rgba(0,100,255,0.16)] md:px-6 md:pb-7 md:pt-9'
-                        : 'border border-[#E7EDF5] px-3 pb-4 pt-6 md:px-5 md:pb-6 md:pt-7'
+                        ? 'z-20 -translate-y-4'
+                        : 'z-10 md:translate-y-5'
                     }`}
                   >
-                    <div
-                      className={`absolute inset-x-0 top-0 h-[42%] ${
-                        team.rank === 1
-                          ? 'bg-[linear-gradient(180deg,#E8F3FF_0%,#F7FBFF_100%)]'
-                          : 'bg-[linear-gradient(180deg,#F6F9FC_0%,#FBFCFE_100%)]'
-                      }`}
-                    />
                     {team.rank === 1 ? (
-                      <div className="absolute left-1/2 top-0 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-full bg-[#0064FF] px-3 py-1 text-xs font-black text-white shadow-md md:px-4">
+                      <div className="absolute left-1/2 top-0 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-[#0064FF] px-3 py-1 text-xs font-black text-white shadow-[0_10px_24px_rgba(0,100,255,0.25)] md:px-4">
                         <CrownSimple size={14} weight="fill" className="text-[#FFD45C]" />
                         1위
                       </div>
                     ) : (
                       <div
-                        className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#D6DEE8] bg-white px-3 py-1 text-xs font-black text-[#5F6E82] shadow-sm md:px-4"
+                        className="absolute left-1/2 top-0 z-30 -translate-x-1/2 rounded-full border border-[#D6DEE8] bg-white px-3 py-1 text-xs font-black text-[#5F6E82] shadow-[0_8px_18px_rgba(15,30,50,0.08)] md:px-4"
                       >
                         {team.rank}위
                       </div>
                     )}
-                    <div className={`relative z-10 flex h-full flex-col ${team.rank === 1 ? 'min-h-[264px]' : 'min-h-[220px]'}`}>
+                    <div
+                      className={`relative overflow-hidden rounded-[28px] bg-white text-center shadow-lg ${
+                        team.rank === 1
+                          ? 'border border-[#BFD7FF] px-4 pb-5 pt-7 ring-2 ring-[#0064FF] shadow-[0_20px_44px_rgba(0,100,255,0.16)] md:px-6 md:pb-7 md:pt-9'
+                          : 'border border-[#E7EDF5] px-3 pb-4 pt-6 md:px-5 md:pb-6 md:pt-7'
+                      }`}
+                    >
+                      <div
+                        className={`absolute inset-x-0 top-0 h-[42%] ${
+                          team.rank === 1
+                            ? 'bg-[linear-gradient(180deg,#E8F3FF_0%,#F7FBFF_100%)]'
+                            : 'bg-[linear-gradient(180deg,#F6F9FC_0%,#FBFCFE_100%)]'
+                        }`}
+                      />
+                      <div className={`relative z-10 flex h-full flex-col ${team.rank === 1 ? 'min-h-[264px]' : 'min-h-[220px]'}`}>
                       <div className="flex flex-1 items-center justify-center pt-3">
                         <div
                           className={`flex items-center justify-center rounded-[28px] font-black shadow-[0_18px_34px_rgba(15,30,50,0.12)] ${
@@ -171,6 +178,7 @@ export function Rankings() {
                         </div>
                       </div>
                       <div className={`mt-3 h-2 rounded-full ${team.rank === 1 ? 'bg-[#DCEEFF]' : 'bg-[#F1F5F9]'}`} />
+                      </div>
                     </div>
                   </div>
                 ))}
