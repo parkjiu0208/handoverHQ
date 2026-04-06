@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ArrowSquareOut, Info, TrendUp, Trophy } from '@phosphor-icons/react';
+import { useMemo, useState } from 'react';
+import { ArrowSquareOut, CrownSimple, Info, TrendUp, Trophy } from '@phosphor-icons/react';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingSkeleton } from '../components/LoadingSkeleton';
@@ -16,12 +16,16 @@ export function Rankings() {
     return <LoadingSkeleton />;
   }
 
-  const filteredEntries = leaderboardEntries.filter((entry) => isWithinPeriod(entry.submittedAt, period));
-  const aggregatedRankings = Object.values(
-    filteredEntries.reduce<
+  const aggregatedRankings = useMemo(
+    () =>
+      Object.values(
+        leaderboardEntries
+          .filter((entry) => isWithinPeriod(entry.submittedAt, period))
+          .reduce<
       Record<
         string,
         {
+          teamId: string;
           teamName: string;
           points: number;
           hackathonsWon: number;
@@ -32,34 +36,38 @@ export function Rankings() {
         }
       >
     >((accumulator, entry) => {
-      const current = accumulator[entry.teamId];
+        const current = accumulator[entry.teamId];
 
-      if (!current) {
-        accumulator[entry.teamId] = {
-          teamName: entry.teamName,
-          points: Math.round(entry.totalScore * 10),
-          hackathonsWon: entry.rank === 1 ? 1 : 0,
-          hackathonsParticipated: 1,
-          lastActive: entry.submittedAt,
-          trend: entry.rank === 1 ? 'up' : entry.rank >= 3 ? 'down' : 'same',
-          projectUrl: entry.projectUrl,
-        };
+        if (!current) {
+          accumulator[entry.teamId] = {
+            teamId: entry.teamId,
+            teamName: entry.teamName,
+            points: Math.round(entry.totalScore * 10),
+            hackathonsWon: entry.rank === 1 ? 1 : 0,
+            hackathonsParticipated: 1,
+            lastActive: entry.submittedAt,
+            trend: entry.rank === 1 ? 'up' : entry.rank >= 3 ? 'down' : 'same',
+            projectUrl: entry.projectUrl,
+          };
+          return accumulator;
+        }
+
+        current.points += Math.round(entry.totalScore * 10);
+        current.hackathonsParticipated += 1;
+        current.hackathonsWon += entry.rank === 1 ? 1 : 0;
+        current.lastActive = current.lastActive > entry.submittedAt ? current.lastActive : entry.submittedAt;
+        current.projectUrl = entry.projectUrl || current.projectUrl;
         return accumulator;
-      }
-
-      current.points += Math.round(entry.totalScore * 10);
-      current.hackathonsParticipated += 1;
-      current.hackathonsWon += entry.rank === 1 ? 1 : 0;
-      current.lastActive = current.lastActive > entry.submittedAt ? current.lastActive : entry.submittedAt;
-      current.projectUrl = entry.projectUrl || current.projectUrl;
-      return accumulator;
-    }, {})
-  )
-    .sort((left, right) => right.points - left.points)
-    .map((entry, index) => ({
-      rank: index + 1,
-      ...entry,
-    }));
+      }, {})
+      )
+        .sort((left, right) => right.points - left.points)
+        .map((entry, index) => ({
+          rank: index + 1,
+          ...entry,
+        })),
+    [leaderboardEntries, period]
+  );
+  const podiumEntries = [aggregatedRankings[1], aggregatedRankings[0], aggregatedRankings[2]].filter(Boolean);
 
   return (
     <div className="min-h-screen w-full text-[#0F1E32]">
@@ -100,39 +108,69 @@ export function Rankings() {
             />
           ) : (
             <>
-              <div className="grid gap-5 md:grid-cols-3">
-                {aggregatedRankings.slice(0, 3).map((team, index) => (
+              <div className="grid grid-cols-3 items-end gap-3 md:gap-5">
+                {podiumEntries.map((team) => (
                   <div
-                    key={team.teamName}
-                    className={`relative rounded-2xl bg-white p-8 text-center shadow-lg ${index === 0 ? 'ring-2 ring-[#0064FF]' : ''}`}
+                    key={team.teamId}
+                    className={`relative overflow-hidden rounded-[28px] bg-white text-center shadow-lg ${
+                      team.rank === 1
+                        ? '-translate-y-4 border border-[#BFD7FF] px-4 pb-5 pt-7 ring-2 ring-[#0064FF] shadow-[0_20px_44px_rgba(0,100,255,0.16)] md:px-6 md:pb-7 md:pt-9'
+                        : 'border border-[#E7EDF5] px-3 pb-4 pt-6 md:px-5 md:pb-6 md:pt-7'
+                    }`}
                   >
-                    {index === 0 && (
-                      <div className="absolute -top-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-[#0064FF] px-4 py-1 text-xs font-bold text-white shadow-md">
-                        <Trophy size={12} /> 1위
+                    <div
+                      className={`absolute inset-x-0 top-0 h-[42%] ${
+                        team.rank === 1
+                          ? 'bg-[linear-gradient(180deg,#E8F3FF_0%,#F7FBFF_100%)]'
+                          : 'bg-[linear-gradient(180deg,#F6F9FC_0%,#FBFCFE_100%)]'
+                      }`}
+                    />
+                    {team.rank === 1 ? (
+                      <div className="absolute left-1/2 top-0 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-full bg-[#0064FF] px-3 py-1 text-xs font-black text-white shadow-md md:px-4">
+                        <CrownSimple size={14} weight="fill" className="text-[#FFD45C]" />
+                        1위
+                      </div>
+                    ) : (
+                      <div
+                        className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#D6DEE8] bg-white px-3 py-1 text-xs font-black text-[#5F6E82] shadow-sm md:px-4"
+                      >
+                        {team.rank}위
                       </div>
                     )}
-                    <div
-                      className={`mb-4 text-6xl font-black tracking-tighter ${
-                        index === 0 ? 'text-[#0064FF]' : index === 1 ? 'text-[#0F1E32]' : 'text-[#5F6E82]'
-                      }`}
-                    >
-                      {team.rank}
-                    </div>
-                    <h3 className="mb-1 text-xl font-bold text-[#0F1E32]">{team.teamName}</h3>
-                    <div className="mb-8 text-4xl font-bold text-[#0F1E32]">
-                      {team.points.toLocaleString()}
-                      <span className="ml-1 text-sm font-medium text-[#5F6E82]">pt</span>
-                    </div>
-                    <div className="flex items-center justify-center gap-8 border-t border-[#F6F9FC] pt-6 text-sm">
-                      <div>
-                        <div className="mb-1 text-xs font-medium text-[#5F6E82]">우승</div>
-                        <div className="text-lg font-bold text-[#0F1E32]">{team.hackathonsWon}회</div>
+                    <div className={`relative z-10 flex h-full flex-col ${team.rank === 1 ? 'min-h-[264px]' : 'min-h-[220px]'}`}>
+                      <div className="flex flex-1 items-center justify-center pt-3">
+                        <div
+                          className={`flex items-center justify-center rounded-[28px] font-black shadow-[0_18px_34px_rgba(15,30,50,0.12)] ${
+                            team.rank === 1
+                              ? 'h-20 w-20 bg-[#DCEEFF] text-[1.7rem] text-[#0F1E32] md:h-24 md:w-24 md:text-[2rem]'
+                              : 'h-16 w-16 bg-[#F1F5F9] text-xl text-[#445267] md:h-20 md:w-20 md:text-2xl'
+                          }`}
+                        >
+                          {team.teamName.slice(0, 2).toUpperCase()}
+                        </div>
                       </div>
-                      <div className="h-10 w-px bg-[#F6F9FC]" />
-                      <div>
-                        <div className="mb-1 text-xs font-medium text-[#5F6E82]">참가</div>
-                        <div className="text-lg font-bold text-[#0F1E32]">{team.hackathonsParticipated}회</div>
+
+                      <div className="relative z-10 mt-4 rounded-[22px] bg-white/90 px-2 py-4 md:px-3">
+                        <h3
+                          className={`break-keep font-bold tracking-tight text-[#0F1E32] ${
+                            team.rank === 1 ? 'text-lg md:text-[1.85rem]' : 'text-base md:text-[1.4rem]'
+                          }`}
+                        >
+                          {team.teamName}
+                        </h3>
+                        <div
+                          className={`mt-2 font-black tracking-tight ${team.rank === 1 ? 'text-3xl md:text-[2.5rem]' : 'text-2xl md:text-[2rem]'} text-[#0064FF]`}
+                        >
+                          {team.points.toLocaleString()}
+                          <span className="ml-1 text-xs font-bold text-[#5F6E82] md:text-sm">pt</span>
+                        </div>
+                        <div className="mt-4 flex items-center justify-center gap-3 text-[11px] font-bold text-[#5F6E82] md:gap-4 md:text-xs">
+                          <span>우승 {team.hackathonsWon}회</span>
+                          <span className="h-1 w-1 rounded-full bg-[#C7D3E3]" />
+                          <span>참가 {team.hackathonsParticipated}회</span>
+                        </div>
                       </div>
+                      <div className={`mt-3 h-2 rounded-full ${team.rank === 1 ? 'bg-[#DCEEFF]' : 'bg-[#F1F5F9]'}`} />
                     </div>
                   </div>
                 ))}
@@ -156,7 +194,7 @@ export function Rankings() {
                       </thead>
                       <tbody className="divide-y divide-[#F6F9FC]">
                         {aggregatedRankings.map((team) => (
-                          <tr key={team.teamName} className="transition-colors hover:bg-[#F6F9FC]">
+                          <tr key={team.teamId} className="transition-colors hover:bg-[#F6F9FC]">
                             <td className="px-6 py-4 text-center text-lg font-bold text-[#5F6E82]">{team.rank}</td>
                             <td className="px-6 py-4 font-bold text-[#0F1E32]">{team.teamName}</td>
                             <td className="px-6 py-4 text-right font-bold text-[#0064FF]">{team.points.toLocaleString()}</td>
