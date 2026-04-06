@@ -12,10 +12,6 @@ export function Rankings() {
   const { dataLoading, leaderboardEntries } = useAppContext();
   const [period, setPeriod] = useState<RankingPeriod>('all');
 
-  if (dataLoading) {
-    return <LoadingSkeleton />;
-  }
-
   const aggregatedRankings = useMemo(
     () =>
       Object.values(
@@ -68,6 +64,10 @@ export function Rankings() {
     [leaderboardEntries, period]
   );
   const podiumEntries = [aggregatedRankings[1], aggregatedRankings[0], aggregatedRankings[2]].filter(Boolean);
+
+  if (dataLoading) {
+    return <LoadingSkeleton />;
+  }
 
   return (
     <div className="min-h-screen w-full text-[#0F1E32]">
