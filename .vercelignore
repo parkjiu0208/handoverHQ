@@ -1,0 +1,10 @@
+.git
+.vercel
+.env
+.env.local
+.DS_Store
+dist
+node_modules
+node_modules_corrupt_*
+node_modules_broken_*
+npm-debug.log*
