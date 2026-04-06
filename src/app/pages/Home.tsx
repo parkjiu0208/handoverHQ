@@ -56,7 +56,8 @@ export function Home() {
 
   const activeCount = hackathons.filter((hackathon) => hackathon.status === 'active').length;
   const recruitingCount = teams.filter((team) => team.isRecruiting).length;
-  const nearestDeadline = [...hackathons]
+  const nearestUpcomingDeadline = [...hackathons]
+    .filter((hackathon) => new Date(hackathon.submissionDeadline).getTime() > Date.now())
     .sort((left, right) => left.submissionDeadline.localeCompare(right.submissionDeadline))
     .find((hackathon) => hackathon.status !== 'ended');
 
@@ -128,8 +129,12 @@ export function Home() {
           </div>
           <div className="flex flex-col justify-between rounded-2xl bg-[#05060B] p-6 shadow-md">
             <div className="mb-2 text-sm font-medium text-[#9EA7B5]">가장 가까운 마감</div>
-            <div className="text-3xl font-bold text-white">{nearestDeadline ? getDdayLabel(nearestDeadline.submissionDeadline) : '-'}</div>
-            <div className="mt-1 text-xs text-[#9EA7B5]">{nearestDeadline?.title ?? '예정된 대회가 없습니다.'}</div>
+            <div className="text-3xl font-bold text-white">
+              {nearestUpcomingDeadline ? getDdayLabel(nearestUpcomingDeadline.submissionDeadline) : '예정 없음'}
+            </div>
+            <div className="mt-1 text-xs text-[#9EA7B5]">
+              {nearestUpcomingDeadline?.title ?? '다가오는 제출 마감이 없습니다.'}
+            </div>
           </div>
         </div>
       </section>
